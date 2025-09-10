@@ -5,6 +5,7 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import numpy as np
 
 class DDOSDetectionDashboard:
     def __init__(self):
@@ -14,30 +15,102 @@ class DDOSDetectionDashboard:
             'HIGH': '#dc3545',
             'UNKNOWN': '#6c757d'
         }
+        self.setup_page_style()
     
-    def render(self, detection_results, system_running):
-        """Render the main dashboard"""
+    def setup_page_style(self):
+        """Setup custom page styling"""
+        st.markdown("""
+        <style>
+        .main-header {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            padding: 1rem;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
         
-        # Main title
-        st.title("🛡️ Real-Time DDoS Detection System")
+        .metric-card {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #667eea;
+        }
         
-        # System status banner
-        if system_running:
-            st.success("🟢 **SYSTEM ACTIVE** - Real-time monitoring in progress")
-        else:
-            st.error("🔴 **SYSTEM STOPPED** - No active monitoring")
+        .threat-high {
+            background: linear-gradient(90deg, #ff6b6b, #ee5a52);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
         
-        # Metrics overview
-        self._render_metrics(detection_results)
+        .threat-medium {
+            background: linear-gradient(90deg, #ffa726, #ff9800);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
         
-        # Real-time alerts
-        self._render_alerts(detection_results)
+        .status-active {
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+        }
         
-        # Detection results table
-        self._render_detection_table(detection_results)
+        .status-inactive {
+            background: linear-gradient(90deg, #f44336, #d32f2f);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+        }
         
-        # Visualizations
-        self._render_visualizations(detection_results)
+        .chart-container {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin: 1rem 0;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    
+    def render(self, detection_results, system_running, simulation_stats=None):
+        """Render the enhanced main dashboard"""
+        
+        # Enhanced header
+        st.markdown("""
+        <div class="main-header">
+            <h1>🛡️ Advanced DDoS Detection & Analysis System</h1>
+            <p>Real-time network traffic monitoring with AI-powered threat detection</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Enhanced system status
+        self._render_enhanced_status(system_running, simulation_stats)
+        
+        # Enhanced metrics overview
+        self._render_enhanced_metrics(detection_results)
+        
+        # Real-time alerts with animations
+        self._render_enhanced_alerts(detection_results)
+        
+        # Advanced analytics section
+        self._render_advanced_analytics(detection_results)
+        
+        # Enhanced detection table
+        self._render_enhanced_detection_table(detection_results)
+        
+        # Advanced visualizations
+        self._render_advanced_visualizations(detection_results)
     
     def _render_metrics(self, detection_results):
         """Render key metrics"""
