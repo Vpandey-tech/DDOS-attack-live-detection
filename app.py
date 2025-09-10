@@ -112,9 +112,13 @@ def main():
         # Documentation and User Guide
         render_documentation()
     
-    # Auto-refresh when system is running
+    # Process flows and auto-refresh when system is running
     if st.session_state.system_running or st.session_state.simulation_running:
-        time.sleep(1)
+        # Process any pending flows
+        process_flows()
+        
+        # Auto-refresh every 2 seconds
+        time.sleep(2)
         st.rerun()
 
 def render_enhanced_sidebar():
@@ -141,14 +145,19 @@ def render_enhanced_sidebar():
     
     st.sidebar.markdown("---")
     
-    # Network Interface Selection
+    # Network Interface Information
     st.sidebar.markdown("### 🌐 Network Configuration")
-    interfaces = ["lo", "eth0", "wlan0", "any"]
-    selected_interface = st.sidebar.selectbox(
-        "Select Network Interface", 
-        interfaces,
-        help="Choose the network interface to monitor"
-    )
+    
+    # Show detected interface if packet capture is initialized
+    if st.session_state.packet_capture and st.session_state.packet_capture.interface:
+        st.sidebar.info(f"📡 **Interface:** {st.session_state.packet_capture.interface}")
+        interface_info = st.session_state.packet_capture.get_interface_info()
+        st.sidebar.text(interface_info)
+    else:
+        st.sidebar.info("🔍 Auto-detect interface when starting")
+    
+    # For compatibility, use a dummy interface selection (will be ignored)
+    selected_interface = "auto-detect"
     
     # Flow timeout setting
     flow_timeout = st.sidebar.slider(
@@ -240,7 +249,7 @@ def render_enhanced_sidebar():
         st.rerun()
 
 def start_detection_system(interface, timeout):
-    """Start the DDoS detection system"""
+    """Start the enhanced DDoS detection system"""
     try:
         # Initialize flow manager
         st.session_state.flow_manager = FlowManager(
@@ -248,31 +257,35 @@ def start_detection_system(interface, timeout):
             timeout=timeout
         )
         
-        # Initialize packet capture
+        # Initialize packet capture with auto-detection (ignore selected interface for now)
         st.session_state.packet_capture = PacketCapture(
-            interface=interface,
+            interface=None,  # Let it auto-detect
             flow_manager=st.session_state.flow_manager
         )
         
-        # Start processing threads
+        # Check if interface was detected
+        if not st.session_state.packet_capture.interface:
+            st.warning("⚠️ No suitable network interface found for packet capture")
+            st.info("💡 This is normal in cloud environments. You can still test the system using the Traffic Simulator.")
+            return
+        
+        # Start packet capture in background thread (no processing thread needed)
         capture_thread = threading.Thread(
             target=st.session_state.packet_capture.start_capture,
             daemon=True
         )
-        
-        processing_thread = threading.Thread(
-            target=process_flows,
-            daemon=True
-        )
-        
         capture_thread.start()
-        processing_thread.start()
         
         st.session_state.system_running = True
-        st.success(f"✅ Detection system started on interface: {interface}")
+        
+        # Show success with interface info
+        interface_info = st.session_state.packet_capture.get_interface_info()
+        st.success(f"✅ Detection system started!")
+        st.info(f"📡 {interface_info}")
         
     except Exception as e:
         st.error(f"❌ Failed to start detection system: {str(e)}")
+        st.info("💡 If you're in a cloud environment, packet capture may not be available. Use the Traffic Simulator to test the system.")
 
 def stop_detection_system():
     """Stop the DDoS detection system"""
@@ -331,49 +344,58 @@ def reset_system():
     }
 
 def process_flows():
-    """Enhanced flow processing with performance tracking"""
-    while st.session_state.system_running or st.session_state.simulation_running:
-        try:
-            if not st.session_state.flow_queue.empty():
-                flow_data = st.session_state.flow_queue.get_nowait()
-                
-                # Perform model inference
-                result = st.session_state.model_inference.predict(flow_data['features'])
-                
-                # Create enhanced detection result
-                detection_result = {
-                    'timestamp': flow_data['timestamp'],
-                    'src_ip': flow_data['src_ip'],
-                    'dst_ip': flow_data['dst_ip'],
-                    'src_port': flow_data['src_port'],
-                    'dst_port': flow_data['dst_port'],
-                    'protocol': flow_data['protocol'],
-                    'lucid_prediction': result['lucid_prediction'],
-                    'lucid_confidence': result['lucid_confidence'],
-                    'autoencoder_anomaly': result['autoencoder_anomaly'],
-                    'reconstruction_error': result['reconstruction_error'],
-                    'final_prediction': result['final_prediction'],
-                    'threat_level': result['threat_level'],
-                    'features': flow_data['features']  # Store features for analysis
-                }
-                
-                # Add to results with size limit for performance
-                st.session_state.detection_results.append(detection_result)
-                if len(st.session_state.detection_results) > 2000:
-                    st.session_state.detection_results = st.session_state.detection_results[-1500:]
-                
-                # Update performance metrics
-                st.session_state.performance_metrics['flows_analyzed'] += 1
-                if result['final_prediction'] == 'Attack':
-                    st.session_state.performance_metrics['threats_detected'] += 1
+    """Process flows from queue (called from main thread)"""
+    processed_count = 0
+    max_per_cycle = 10  # Process max 10 flows per call to avoid blocking UI
+    
+    try:
+        while not st.session_state.flow_queue.empty() and processed_count < max_per_cycle:
+            flow_data = st.session_state.flow_queue.get_nowait()
             
-            time.sleep(0.05)  # Optimized delay for better performance
+            # Perform model inference
+            result = st.session_state.model_inference.predict(flow_data['features'])
             
-        except queue.Empty:
-            time.sleep(0.1)
-        except Exception as e:
-            st.error(f"Error processing flows: {str(e)}")
-            time.sleep(1)
+            # Create enhanced detection result
+            detection_result = {
+                'timestamp': flow_data['timestamp'],
+                'src_ip': flow_data['src_ip'],
+                'dst_ip': flow_data['dst_ip'],
+                'src_port': flow_data['src_port'],
+                'dst_port': flow_data['dst_port'],
+                'protocol': flow_data['protocol'],
+                'lucid_prediction': result['lucid_prediction'],
+                'lucid_confidence': result['lucid_confidence'],
+                'autoencoder_anomaly': result['autoencoder_anomaly'],
+                'reconstruction_error': result['reconstruction_error'],
+                'final_prediction': result['final_prediction'],
+                'threat_level': result['threat_level'],
+                'features': flow_data['features']  # Store features for analysis
+            }
+            
+            # Add to results with size limit for performance
+            st.session_state.detection_results.append(detection_result)
+            if len(st.session_state.detection_results) > 2000:
+                st.session_state.detection_results = st.session_state.detection_results[-1500:]
+            
+            # Update performance metrics
+            st.session_state.performance_metrics['flows_analyzed'] += 1
+            if result['final_prediction'] == 'Attack':
+                st.session_state.performance_metrics['threats_detected'] += 1
+            
+            # Update packet count for dashboard
+            if 'packet_count' not in st.session_state:
+                st.session_state.packet_count = 0
+            st.session_state.packet_count += 1
+            
+            processed_count += 1
+        
+        return processed_count
+        
+    except queue.Empty:
+        return 0
+    except Exception as e:
+        st.error(f"Error processing flows: {str(e)}")
+        return 0
 
 def render_simulation_controls():
     """Render simulation control panel in the testing tab"""

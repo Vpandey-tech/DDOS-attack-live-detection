@@ -107,14 +107,16 @@ class ModelInference:
             
             # Load PyTorch model with flexible architecture
             try:
-                # Try default architecture first
-                self.autoencoder_model = AutoEncoder(input_dim=72)
+                # Try the correct architecture based on error messages: [128, 64, 32]
+                self.autoencoder_model = AutoEncoder(input_dim=72, hidden_dims=[128, 64, 32])
                 self.autoencoder_model.load_state_dict(torch.load('auto.pth', map_location='cpu'))
                 self.autoencoder_model.eval()
+                print("✅ AutoEncoder loaded with correct architecture: [128, 64, 32]")
             except Exception as arch_error:
-                print(f"Default architecture failed: {arch_error}")
-                # Try alternative architectures
+                print(f"Correct architecture failed: {arch_error}")
+                # Try alternative architectures based on the error patterns
                 alternative_architectures = [
+                    [128, 64, 32],    # Architecture from error message
                     [64, 32, 16, 8],  # Architecture 1
                     [48, 24, 12],     # Architecture 2
                     [32, 16],         # Architecture 3
@@ -138,7 +140,7 @@ class ModelInference:
                 if not model_loaded:
                     # Create a basic working model for demonstration
                     print("Creating fallback AutoEncoder model...")
-                    self.autoencoder_model = AutoEncoder(input_dim=72)
+                    self.autoencoder_model = AutoEncoder(input_dim=72, hidden_dims=[128, 64, 32])
                     print("⚠️ Using fallback AutoEncoder (may have reduced accuracy)")
             
             print("✅ AutoEncoder model loaded successfully")
