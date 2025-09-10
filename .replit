@@ -2,7 +2,7 @@ modules = ["python-3.11"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["glibcLocales", "imagemagickBig", "sox", "tcpdump", "wireshark"]
+packages = ["glibcLocales", "imagemagickBig", "sox", "tcpdump", "wireshark", "zip"]
 
 [deployment]
 deploymentTarget = "autoscale"
