@@ -15,6 +15,12 @@ class DDOSDetectionDashboard:
             'HIGH': '#dc3545',
             'UNKNOWN': '#6c757d'
         }
+        
+        # Initialize session state for packet tracking
+        if 'packet_count' not in st.session_state:
+            st.session_state.packet_count = 0
+        if 'operation_mode' not in st.session_state:
+            st.session_state.operation_mode = 'Live Monitoring'
         self.setup_page_style()
     
     def setup_page_style(self):
@@ -83,8 +89,69 @@ class DDOSDetectionDashboard:
         </style>
         """, unsafe_allow_html=True)
     
+    def render_live_monitoring(self, detection_results, system_running):
+        """Render the Live Traffic Monitoring dashboard"""
+        
+        # Live monitoring header
+        st.markdown("""
+        <div class="main-header">
+            <h1>🔍 Live Traffic Monitoring</h1>
+            <p>Real-time network analysis with AI-powered threat detection</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Initialize packet counter
+        if 'packet_count' not in st.session_state:
+            st.session_state.packet_count = len(detection_results) if detection_results else 0
+        
+        # Set operation mode
+        st.session_state.operation_mode = 'Live Monitoring'
+        
+        # Enhanced system status
+        self._render_enhanced_status(system_running)
+        
+        # Enhanced metrics overview
+        self._render_enhanced_metrics(detection_results)
+        
+        # Real-time alerts with packet indicators
+        self._render_enhanced_alerts(detection_results)
+        
+        # Enhanced detection table
+        self._render_enhanced_detection_table(detection_results)
+        
+        # Advanced analytics section
+        self._render_advanced_analytics(detection_results)
+        
+        # Advanced visualizations
+        self._render_advanced_visualizations(detection_results)
+    
+    def render_testing_simulation(self, simulation_results, simulation_stats=None):
+        """Render the Testing & Simulation dashboard"""
+        
+        # Testing header
+        st.markdown("""
+        <div class="main-header">
+            <h1>🧪 Testing & Simulation</h1>
+            <p>Controlled testing environment for DDoS attack simulation</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Set operation mode
+        st.session_state.operation_mode = 'Simulation'
+        
+        # Simulation status
+        self._render_simulation_status(simulation_stats)
+        
+        # Simulation metrics
+        self._render_simulation_metrics(simulation_results, simulation_stats)
+        
+        # Simulation results
+        if simulation_results:
+            self._render_enhanced_detection_table(simulation_results)
+            self._render_advanced_visualizations(simulation_results)
+    
     def render(self, detection_results, system_running, simulation_stats=None):
-        """Render the enhanced main dashboard"""
+        """Render the main dashboard (backward compatibility)"""
         
         # Enhanced header
         st.markdown("""
@@ -111,6 +178,73 @@ class DDOSDetectionDashboard:
         
         # Advanced visualizations
         self._render_advanced_visualizations(detection_results)
+    
+    def _render_simulation_status(self, simulation_stats):
+        """Render simulation status section"""
+        st.subheader("🧪 Simulation Status")
+        
+        if simulation_stats:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if simulation_stats.get('running', False):
+                    st.markdown('<div class="status-active">🟢 SIMULATION RUNNING</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<div class="status-inactive">🔴 SIMULATION STOPPED</div>', unsafe_allow_html=True)
+            
+            with col2:
+                attack_type = simulation_stats.get('attack_type', 'None')
+                st.markdown(f'<div class="status-active">🎯 {attack_type.upper()}</div>', unsafe_allow_html=True)
+            
+            with col3:
+                intensity = simulation_stats.get('intensity', 0)
+                st.markdown(f'<div class="status-active">⚡ {intensity}% INTENSITY</div>', unsafe_allow_html=True)
+        else:
+            st.info("No simulation running - Use controls below to start testing")
+    
+    def _render_simulation_metrics(self, simulation_results, simulation_stats):
+        """Render simulation-specific metrics"""
+        st.subheader("📊 Simulation Metrics")
+        
+        if not simulation_results:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Simulated Packets", "0")
+            with col2:
+                st.metric("Detected Attacks", "0")
+            with col3:
+                st.metric("Detection Accuracy", "0%")
+            with col4:
+                st.metric("False Positives", "0")
+            return
+        
+        # Calculate simulation metrics
+        total_packets = len(simulation_results)
+        detected_attacks = len([r for r in simulation_results if r['final_prediction'] == 'Attack'])
+        
+        # If we know the simulation type, calculate accuracy
+        accuracy = "N/A"
+        false_positives = 0
+        
+        if simulation_stats and simulation_stats.get('attack_type') != 'Normal Traffic':
+            # For attack simulations, we expect most to be detected as attacks
+            expected_attacks = int(total_packets * 0.8)  # Expect 80% to be attacks
+            accuracy = f"{(detected_attacks / expected_attacks * 100):.1f}%" if expected_attacks > 0 else "N/A"
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Simulated Packets", f"{total_packets:,}")
+        
+        with col2:
+            st.metric("Detected Attacks", f"{detected_attacks:,}")
+        
+        with col3:
+            st.metric("Detection Accuracy", accuracy)
+        
+        with col4:
+            normal_detected = total_packets - detected_attacks
+            st.metric("Normal Traffic", f"{normal_detected:,}")
     
     def _render_metrics(self, detection_results):
         """Render key metrics"""
@@ -397,3 +531,370 @@ class DDOSDetectionDashboard:
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No threat sources to display")
+    
+    def _render_enhanced_status(self, system_running, simulation_stats=None):
+        """Render enhanced system status with live traffic indicators"""
+        st.subheader("🔧 System Status")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if system_running:
+                st.markdown('<div class="status-active">🟢 SYSTEM ACTIVE</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="status-inactive">🔴 SYSTEM OFFLINE</div>', unsafe_allow_html=True)
+        
+        with col2:
+            # Live packet indicator
+            if 'packet_count' in st.session_state and st.session_state.packet_count > 0:
+                st.markdown('<div class="status-active">📡 RECEIVING LIVE TRAFFIC</div>', unsafe_allow_html=True)
+                st.caption(f"Packets captured: {st.session_state.packet_count}")
+            else:
+                st.markdown('<div class="status-inactive">📡 NO LIVE TRAFFIC</div>', unsafe_allow_html=True)
+        
+        with col3:
+            # Mode indicator
+            current_mode = st.session_state.get('operation_mode', 'Live Monitoring')
+            if current_mode == 'Simulation':
+                st.markdown('<div class="status-active">🧪 SIMULATION MODE</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="status-active">🔍 LIVE MONITORING</div>', unsafe_allow_html=True)
+    
+    def _render_enhanced_metrics(self, detection_results):
+        """Render enhanced metrics with packet indicators"""
+        st.subheader("📊 System Metrics")
+        
+        if not detection_results:
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Total Flows", "0")
+            with col2:
+                st.metric("Normal Packets", "0", help="Benign traffic detected")
+            with col3:
+                st.metric("Attack Packets", "0", help="Malicious traffic detected")
+            with col4:
+                st.metric("Detection Rate", "0%")
+            with col5:
+                st.metric("Last Update", "N/A")
+            return
+        
+        # Calculate enhanced metrics
+        total_flows = len(detection_results)
+        attacks = [r for r in detection_results if r['final_prediction'] == 'Attack']
+        normals = [r for r in detection_results if r['final_prediction'] == 'Benign']
+        attack_count = len(attacks)
+        normal_count = len(normals)
+        detection_rate = (attack_count / total_flows * 100) if total_flows > 0 else 0
+        
+        # Recent activity indicators
+        current_time = time.time()
+        recent_flows = [r for r in detection_results if current_time - r['timestamp'] <= 60]  # Last minute
+        recent_attacks = [r for r in recent_flows if r['final_prediction'] == 'Attack']
+        recent_normals = [r for r in recent_flows if r['final_prediction'] == 'Benign']
+        
+        # Display enhanced metrics
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("Total Flows", f"{total_flows:,}")
+        
+        with col2:
+            normal_delta = f"+{len(recent_normals)}" if recent_normals else "0"
+            st.metric("✅ Normal Packets", f"{normal_count:,}", 
+                     delta=normal_delta, delta_color="normal",
+                     help="Benign traffic - no threats detected")
+        
+        with col3:
+            attack_delta = f"+{len(recent_attacks)}" if recent_attacks else "0"
+            st.metric("🚨 Attack Packets", f"{attack_count:,}", 
+                     delta=attack_delta, delta_color="inverse",
+                     help="Malicious traffic detected by AI models")
+        
+        with col4:
+            st.metric("Detection Rate", f"{detection_rate:.1f}%")
+        
+        with col5:
+            if detection_results:
+                last_update = datetime.fromtimestamp(detection_results[-1]['timestamp'])
+                st.metric("Last Update", last_update.strftime("%H:%M:%S"))
+            else:
+                st.metric("Last Update", "N/A")
+    
+    def _render_enhanced_alerts(self, detection_results):
+        """Render enhanced real-time alerts with packet type indicators"""
+        st.subheader("🚨 Real-Time Alerts & Packet Status")
+        
+        # Real-time packet status indicators
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**📡 Live Packet Reception Status**")
+            if not detection_results:
+                st.info("🔍 **Waiting for packets...** System is ready to analyze network traffic")
+                return
+            
+            # Recent packet analysis (last 30 seconds)
+            current_time = time.time()
+            recent_packets = [r for r in detection_results if current_time - r['timestamp'] <= 30]
+            
+            if recent_packets:
+                recent_attacks = [r for r in recent_packets if r['final_prediction'] == 'Attack']
+                recent_normals = [r for r in recent_packets if r['final_prediction'] == 'Benign']
+                
+                if recent_normals:
+                    st.success(f"✅ **{len(recent_normals)} Normal packets** received (last 30s)")
+                
+                if recent_attacks:
+                    st.error(f"🚨 **{len(recent_attacks)} Attack packets** detected (last 30s)")
+                    
+                    # Show latest attack details
+                    latest_attack = recent_attacks[-1]
+                    attack_time = datetime.fromtimestamp(latest_attack['timestamp'])
+                    st.warning(
+                        f"⚠️ **Latest Threat:** {latest_attack['src_ip']} → {latest_attack['dst_ip']} "
+                        f"at {attack_time.strftime('%H:%M:%S')} "
+                        f"({latest_attack['threat_level']} priority)"
+                    )
+            else:
+                st.info("📡 **No recent packets** (last 30 seconds)")
+        
+        with col2:
+            st.markdown("**🛡️ Threat Analysis**")
+            
+            # Get recent high-priority threats (last 2 minutes)
+            recent_threats = [
+                r for r in detection_results 
+                if (current_time - r['timestamp'] <= 120 and 
+                    r['final_prediction'] == 'Attack' and 
+                    r['threat_level'] in ['HIGH', 'MEDIUM'])
+            ]
+            
+            if not recent_threats:
+                st.success("✅ **No active threats** - All traffic appears normal")
+            else:
+                # Display recent threats with enhanced formatting
+                for threat in recent_threats[-3:]:  # Show last 3 threats
+                    threat_time = datetime.fromtimestamp(threat['timestamp'])
+                    
+                    if threat['threat_level'] == 'HIGH':
+                        st.markdown(
+                            f'<div class="threat-high">'
+                            f'🔥 <strong>HIGH THREAT</strong> at {threat_time.strftime("%H:%M:%S")}<br>'
+                            f'{threat["src_ip"]}:{threat["src_port"]} → {threat["dst_ip"]}:{threat["dst_port"]}'
+                            f'</div>', 
+                            unsafe_allow_html=True
+                        )
+                    elif threat['threat_level'] == 'MEDIUM':
+                        st.markdown(
+                            f'<div class="threat-medium">'
+                            f'⚠️ <strong>MEDIUM THREAT</strong> at {threat_time.strftime("%H:%M:%S")}<br>'
+                            f'{threat["src_ip"]}:{threat["src_port"]} → {threat["dst_ip"]}:{threat["dst_port"]}'
+                            f'</div>', 
+                            unsafe_allow_html=True
+                        )
+    
+    def _render_advanced_analytics(self, detection_results):
+        """Render advanced analytics section"""
+        if not detection_results or len(detection_results) < 2:
+            return
+        
+        st.subheader("📈 Advanced Analytics")
+        
+        # Create analytics tabs
+        tab1, tab2, tab3 = st.tabs(["📊 Traffic Analysis", "🔍 Threat Intelligence", "⚡ Performance Metrics"])
+        
+        with tab1:
+            self._render_traffic_analysis(detection_results)
+        
+        with tab2:
+            self._render_threat_intelligence(detection_results)
+        
+        with tab3:
+            self._render_performance_metrics(detection_results)
+    
+    def _render_enhanced_detection_table(self, detection_results):
+        """Render enhanced detection results table with packet type indicators"""
+        st.subheader("🔍 Live Detection Results")
+        
+        if not detection_results:
+            st.info("💡 **No detection results yet** - Start capturing live traffic or run simulation")
+            return
+        
+        # Enhanced table with packet type indicators
+        recent_results = detection_results[-50:]
+        
+        table_data = []
+        for result in reversed(recent_results):  # Show newest first
+            # Packet type indicator
+            if result['final_prediction'] == 'Attack':
+                packet_indicator = "🚨 ATTACK"
+                row_class = "attack-row"
+            else:
+                packet_indicator = "✅ NORMAL"
+                row_class = "normal-row"
+            
+            table_data.append({
+                'Status': packet_indicator,
+                'Time': datetime.fromtimestamp(result['timestamp']).strftime('%H:%M:%S'),
+                'Source IP': result['src_ip'],
+                'Dest IP': result['dst_ip'],
+                'Src Port': result['src_port'],
+                'Dst Port': result['dst_port'],
+                'Protocol': result['protocol'],
+                'AI Confidence': f"{result['lucid_confidence']:.3f}",
+                'Anomaly Score': f"{result['reconstruction_error']:.4f}",
+                'Threat Level': result['threat_level'],
+                'Final Result': result['final_prediction']
+            })
+        
+        df = pd.DataFrame(table_data)
+        
+        # Enhanced styling for packet types
+        def style_status(val):
+            if '🚨 ATTACK' in val:
+                return 'background-color: #ffebee; color: #c62828; font-weight: bold'
+            elif '✅ NORMAL' in val:
+                return 'background-color: #e8f5e8; color: #2e7d32; font-weight: bold'
+            return ''
+        
+        def style_threat_level(val):
+            color = self.threat_colors.get(val, '#ffffff')
+            return f'background-color: {color}; color: white; font-weight: bold'
+        
+        styled_df = df.style.applymap(style_status, subset=['Status']) \
+                           .applymap(style_threat_level, subset=['Threat Level'])
+        
+        st.dataframe(styled_df, use_container_width=True, height=400)
+    
+    def _render_advanced_visualizations(self, detection_results):
+        """Render advanced visualization charts"""
+        if not detection_results or len(detection_results) < 2:
+            return
+        
+        st.subheader("📈 Advanced Visualizations")
+        
+        # Create two columns for charts
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            self._render_threat_timeline(detection_results)
+        
+        with col2:
+            self._render_threat_distribution(detection_results)
+        
+        # Protocol and IP analysis
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            self._render_protocol_analysis(detection_results)
+        
+        with col4:
+            self._render_top_sources(detection_results)
+    
+    def _render_traffic_analysis(self, detection_results):
+        """Render traffic analysis charts"""
+        st.write("**Traffic Flow Analysis**")
+        
+        # Traffic volume over time
+        timeline_data = {}
+        for result in detection_results:
+            minute_key = int(result['timestamp'] // 60) * 60
+            if minute_key not in timeline_data:
+                timeline_data[minute_key] = {'total': 0, 'normal': 0, 'attack': 0}
+            
+            timeline_data[minute_key]['total'] += 1
+            if result['final_prediction'] == 'Attack':
+                timeline_data[minute_key]['attack'] += 1
+            else:
+                timeline_data[minute_key]['normal'] += 1
+        
+        times = [datetime.fromtimestamp(t) for t in sorted(timeline_data.keys())]
+        normals = [timeline_data[t]['normal'] for t in sorted(timeline_data.keys())]
+        attacks = [timeline_data[t]['attack'] for t in sorted(timeline_data.keys())]
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=times, y=normals, name='Normal Traffic', 
+                                line=dict(color='green'), fill='tonexty'))
+        fig.add_trace(go.Scatter(x=times, y=attacks, name='Attack Traffic', 
+                                line=dict(color='red'), fill='tozeroy'))
+        
+        fig.update_layout(
+            height=300,
+            xaxis_title="Time",
+            yaxis_title="Packet Count",
+            margin=dict(l=0, r=0, t=30, b=0)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    def _render_threat_intelligence(self, detection_results):
+        """Render threat intelligence analysis"""
+        st.write("**Threat Intelligence Dashboard**")
+        
+        # Threat sources analysis
+        threat_sources = {}
+        for result in detection_results:
+            if result['final_prediction'] == 'Attack':
+                src = result['src_ip']
+                if src not in threat_sources:
+                    threat_sources[src] = {'count': 0, 'latest': result['timestamp']}
+                threat_sources[src]['count'] += 1
+                threat_sources[src]['latest'] = max(threat_sources[src]['latest'], result['timestamp'])
+        
+        if threat_sources:
+            # Create threat intelligence table
+            threat_data = []
+            for ip, data in sorted(threat_sources.items(), key=lambda x: x[1]['count'], reverse=True)[:10]:
+                threat_data.append({
+                    'Source IP': ip,
+                    'Attack Count': data['count'],
+                    'Latest Activity': datetime.fromtimestamp(data['latest']).strftime('%H:%M:%S'),
+                    'Risk Level': 'HIGH' if data['count'] > 10 else 'MEDIUM' if data['count'] > 5 else 'LOW'
+                })
+            
+            st.dataframe(pd.DataFrame(threat_data), use_container_width=True)
+        else:
+            st.info("No threat sources identified")
+    
+    def _render_performance_metrics(self, detection_results):
+        """Render system performance metrics"""
+        st.write("**System Performance Metrics**")
+        
+        # Calculate performance metrics
+        if detection_results:
+            processing_times = []
+            for i in range(1, len(detection_results)):
+                time_diff = detection_results[i]['timestamp'] - detection_results[i-1]['timestamp']
+                if time_diff > 0:
+                    processing_times.append(time_diff)
+            
+            if processing_times:
+                avg_processing = np.mean(processing_times)
+                max_processing = max(processing_times)
+                min_processing = min(processing_times)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Avg Processing Time", f"{avg_processing:.3f}s")
+                with col2:
+                    st.metric("Max Processing Time", f"{max_processing:.3f}s")
+                with col3:
+                    st.metric("Min Processing Time", f"{min_processing:.3f}s")
+                
+                # Processing time timeline
+                times = [datetime.fromtimestamp(detection_results[i]['timestamp']) 
+                        for i in range(1, len(detection_results))]
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=times, y=processing_times, 
+                                       name='Processing Time', line=dict(color='blue')))
+                fig.update_layout(
+                    height=200,
+                    xaxis_title="Time",
+                    yaxis_title="Processing Time (s)",
+                    margin=dict(l=0, r=0, t=30, b=0)
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No performance data available")

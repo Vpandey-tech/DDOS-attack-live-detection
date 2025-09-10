@@ -2,7 +2,7 @@ import streamlit as st
 import threading
 import time
 import queue
-from enhanced_dashboard import EnhancedDDOSDetectionDashboard
+from dashboard import DDOSDetectionDashboard
 from traffic_simulator import TrafficSimulator
 from packet_capture import PacketCapture
 from flow_manager import FlowManager
@@ -82,18 +82,35 @@ def main():
     # Enhanced sidebar with professional styling
     render_enhanced_sidebar()
     
-    # Create enhanced dashboard
-    dashboard = EnhancedDDOSDetectionDashboard()
+    # Create main dashboard with separated sections
+    dashboard = DDOSDetectionDashboard()
     
-    # Get simulation stats
-    simulation_stats = st.session_state.traffic_simulator.get_simulation_stats()
+    # Create main tabs for different modes
+    tab1, tab2, tab3 = st.tabs(["🔍 Live Traffic Monitoring", "🧪 Testing & Simulation", "📚 Documentation & Guide"])
     
-    # Display enhanced dashboard
-    dashboard.render(
-        st.session_state.detection_results, 
-        st.session_state.system_running,
-        simulation_stats
-    )
+    with tab1:
+        # Live Traffic Monitoring Dashboard
+        dashboard.render_live_monitoring(
+            st.session_state.detection_results, 
+            st.session_state.system_running
+        )
+    
+    with tab2:
+        # Testing & Simulation Dashboard
+        simulation_stats = st.session_state.traffic_simulator.get_simulation_stats()
+        simulation_results = getattr(st.session_state.traffic_simulator, 'simulation_results', [])
+        
+        dashboard.render_testing_simulation(
+            simulation_results,
+            simulation_stats
+        )
+        
+        # Add simulation controls
+        render_simulation_controls()
+    
+    with tab3:
+        # Documentation and User Guide
+        render_documentation()
     
     # Auto-refresh when system is running
     if st.session_state.system_running or st.session_state.simulation_running:
@@ -357,6 +374,331 @@ def process_flows():
         except Exception as e:
             st.error(f"Error processing flows: {str(e)}")
             time.sleep(1)
+
+def render_simulation_controls():
+    """Render simulation control panel in the testing tab"""
+    st.markdown("### 🎮 Simulation Control Panel")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**🎯 Attack Type Selection**")
+        attack_type = st.selectbox(
+            "Choose attack type to simulate:",
+            ['SYN Flood', 'UDP Flood', 'HTTP Flood', 'ICMP Flood', 'Normal Traffic'],
+            help="Select the type of network attack to simulate for testing"
+        )
+        
+        intensity = st.slider(
+            "Attack Intensity (%)",
+            min_value=10,
+            max_value=100,
+            value=50,
+            step=10,
+            help="Higher intensity = more aggressive attack simulation"
+        )
+        
+        duration = st.number_input(
+            "Simulation Duration (seconds)",
+            min_value=10,
+            max_value=300,
+            value=60,
+            step=10,
+            help="How long to run the simulation"
+        )
+    
+    with col2:
+        st.markdown("**🔧 Simulation Controls**")
+        
+        if st.button("▶️ Start Simulation", type="primary", use_container_width=True):
+            try:
+                st.session_state.traffic_simulator.start_simulation(
+                    attack_type=attack_type,
+                    intensity=intensity,
+                    duration=duration
+                )
+                st.session_state.simulation_running = True
+                st.success(f"✅ Started {attack_type} simulation at {intensity}% intensity")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to start simulation: {str(e)}")
+        
+        if st.button("⏹️ Stop Simulation", use_container_width=True):
+            try:
+                st.session_state.traffic_simulator.stop_simulation()
+                st.session_state.simulation_running = False
+                st.success("✅ Simulation stopped")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to stop simulation: {str(e)}")
+        
+        if st.button("🗑️ Clear Results", use_container_width=True):
+            if hasattr(st.session_state.traffic_simulator, 'simulation_results'):
+                st.session_state.traffic_simulator.simulation_results = []
+            st.success("✅ Simulation results cleared")
+            st.rerun()
+    
+    # Simulation tips
+    st.markdown("### 💡 Simulation Tips")
+    st.info("""
+    **How to use the simulator:**
+    1. **Choose Attack Type**: Select the type of DDoS attack to simulate
+    2. **Set Intensity**: Higher values create more aggressive attacks  
+    3. **Start Simulation**: Watch the AI models detect simulated threats in real-time
+    4. **Analyze Results**: Check the detection table and visualizations above
+    
+    **Testing Recommendations:**
+    - Start with 50% intensity to see clear detection patterns
+    - Try different attack types to test model versatility
+    - Use 'Normal Traffic' to verify low false-positive rates
+    """)
+
+def render_documentation():
+    """Render comprehensive system documentation"""
+    st.markdown("# 📚 Complete System Documentation & User Guide")
+    
+    # Quick Start Guide
+    st.markdown("## 🚀 Quick Start Guide")
+    st.markdown("""
+    **Getting Started in 3 Simple Steps:**
+    
+    1. **🔍 Live Monitoring**: Go to "Live Traffic Monitoring" tab to watch real network traffic
+    2. **🧪 Testing**: Use "Testing & Simulation" tab to test the system with simulated attacks
+    3. **📈 Analysis**: View real-time charts and detection results in both modes
+    """)
+    
+    # System Architecture
+    st.markdown("## 🏢 System Architecture")
+    
+    # Architecture diagram (text-based)
+    st.markdown("""
+    ```
+    📡 Network Interface (Your WiFi: 192.168.1.105)
+                    │
+                    ↓
+    📦 Packet Capture (Scapy)
+                    │
+                    ↓
+    🔄 Flow Assembly (5-tuple grouping)
+                    │
+                    ↓
+    🔢 Feature Extraction (72 features)
+                    │
+                    ↓
+    🤖 AI Models (LucidCNN + AutoEncoder)
+                    │
+                    ↓
+    📈 Dashboard (Real-time visualization)
+    ```
+    """)
+    
+    # How It Works
+    st.markdown("## ⚙️ How the System Works")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["📦 Packet Capture", "🔢 Feature Extraction", "🤖 AI Detection", "📈 Visualization"])
+    
+    with tab1:
+        st.markdown("""
+        ### 📦 Packet Capture Process
+        
+        **What happens when you click "Start Live Monitoring":**
+        
+        1. **Network Interface Detection**: System finds your WiFi adapter (Intel Centrino Wireless-N 135)
+        2. **Packet Sniffing**: Captures TCP and UDP packets from your network (192.168.1.105)
+        3. **Protocol Parsing**: Extracts source/destination IPs, ports, and packet details
+        4. **Flow Grouping**: Groups packets by 5-tuple (src_ip, dst_ip, src_port, dst_port, protocol)
+        
+        **Indicators you'll see:**
+        - 🟢 **"RECEIVING LIVE TRAFFIC"** when packets are being captured
+        - 🔴 **"NO LIVE TRAFFIC"** when no packets detected
+        - Packet counter showing real-time capture numbers
+        """)
+    
+    with tab2:
+        st.markdown("""
+        ### 🔢 Feature Extraction Engine
+        
+        **The system extracts 72 statistical features from each network flow:**
+        
+        **Packet Size Features (8 features):**
+        - Forward/backward packet length statistics
+        - Min, max, mean, standard deviation of packet sizes
+        
+        **Inter-Arrival Time Features (8 features):**
+        - Time gaps between packets in forward/backward directions
+        - Statistical analysis of timing patterns
+        
+        **TCP Flag Features (8 features):**
+        - TCP control flags (SYN, ACK, FIN, RST, PSH, URG)
+        - Connection state analysis
+        
+        **Flow Duration Features (8 features):**
+        - Total flow duration and sub-flow timings
+        - Active/idle time measurements
+        
+        **Additional Statistical Features (40 features):**
+        - Advanced flow characteristics and behavioral patterns
+        - Protocol-specific metrics and anomaly indicators
+        """)
+    
+    with tab3:
+        st.markdown("""
+        ### 🤖 AI-Powered Detection
+        
+        **Hybrid Detection System using 2 AI Models:**
+        
+        **1. LucidCNN (Classification Model)**
+        - **Type**: TensorFlow deep learning classifier
+        - **Input**: 72 normalized features (StandardScaler)
+        - **Output**: Attack probability (0.0 to 1.0)
+        - **Purpose**: Binary classification (Attack vs Benign)
+        
+        **2. AutoEncoder (Anomaly Detection)**
+        - **Type**: PyTorch neural network autoencoder  
+        - **Input**: 72 scaled features (MinMaxScaler)
+        - **Output**: Reconstruction error
+        - **Purpose**: Detect unusual patterns in "normal" traffic
+        
+        **Final Decision Logic:**
+        ```python
+        if lucid_confidence > 0.5:  # LucidCNN says "Attack"
+            result = "Attack"
+        elif reconstruction_error > threshold:  # AutoEncoder detects anomaly
+            result = "Attack" 
+        else:
+            result = "Benign"
+        ```
+        
+        **Threat Levels:**
+        - 🔥 **HIGH**: Both models agree it's an attack
+        - ⚠️ **MEDIUM**: One model detects threat
+        - 🟢 **LOW**: Normal traffic, no threats
+        """)
+    
+    with tab4:
+        st.markdown("""
+        ### 📈 Real-Time Visualization
+        
+        **What you see in the dashboard:**
+        
+        **Status Indicators:**
+        - 🟢 **SYSTEM ACTIVE**: Monitoring is running
+        - 📡 **RECEIVING LIVE TRAFFIC**: Packets being captured
+        - ✅ **Normal Packets**: Benign traffic detected
+        - 🚨 **Attack Packets**: Malicious traffic found
+        
+        **Real-Time Metrics:**
+        - **Total Flows**: Number of network flows analyzed
+        - **Detection Rate**: Percentage of traffic flagged as attacks
+        - **Packet Counters**: Live count of normal vs attack packets
+        
+        **Interactive Charts:**
+        - **Timeline**: Attack detection over time
+        - **Protocol Analysis**: Which protocols are being attacked
+        - **Threat Sources**: Top attacking IP addresses
+        - **Performance**: System processing speed metrics
+        """)
+    
+    # Button Functions
+    st.markdown("## 🔘 Button Functions Guide")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        ### 🔍 Live Monitoring Buttons
+        
+        **▶️ Start Live Monitoring**
+        - Begins capturing packets from your network interface
+        - Starts real-time analysis with AI models
+        - Updates dashboard every second with new detections
+        
+        **⏹️ Stop Monitoring**
+        - Stops packet capture and analysis
+        - Preserves existing detection results
+        - System goes into idle mode
+        
+        **🗑️ Clear Results**
+        - Removes all detection history
+        - Resets metrics and counters
+        - Fresh start for new monitoring session
+        """)
+    
+    with col2:
+        st.markdown("""
+        ### 🧪 Simulation Buttons
+        
+        **▶️ Start Simulation**
+        - Generates artificial attack traffic
+        - Tests AI models with known attack patterns
+        - Safe testing without real network attacks
+        
+        **⏹️ Stop Simulation**
+        - Ends traffic simulation
+        - Preserves simulation results for analysis
+        - Returns to normal monitoring mode
+        
+        **Attack Type Selector**
+        - **SYN Flood**: TCP connection exhaustion attack
+        - **UDP Flood**: UDP packet flooding attack
+        - **HTTP Flood**: Web server overload attack
+        - **ICMP Flood**: Ping flooding attack
+        - **Normal Traffic**: Benign traffic for testing
+        """)
+    
+    # Network Configuration
+    st.markdown("## 🌐 Your Network Configuration")
+    
+    st.info("""
+    **Detected Network Setup:**
+    - **Computer**: VIVEk
+    - **IP Address**: 192.168.1.105
+    - **Network**: 255.255.255.0 (192.168.1.x)
+    - **Gateway**: 192.168.1.1
+    - **WiFi Adapter**: Intel(R) Centrino(R) Wireless-N 135
+    - **DNS Servers**: 8.8.8.8, 103.50.76.14
+    """)
+    
+    # Troubleshooting
+    st.markdown("## 🔧 Troubleshooting Guide")
+    
+    st.markdown("""
+    **Common Issues & Solutions:**
+    
+    **🔴 "NO LIVE TRAFFIC" showing:**
+    - Check if you're connected to WiFi (192.168.1.105)
+    - Try browsing websites to generate network traffic
+    - Restart the monitoring if no packets appear
+    
+    **🚨 Too many false alarms:**
+    - This is normal during initial learning
+    - Models improve with more diverse traffic
+    - Use simulation mode to verify detection accuracy
+    
+    **⚡ System running slowly:**
+    - High traffic networks may cause delays
+    - Clear results periodically to free memory
+    - Consider reducing monitoring duration
+    
+    **🤖 Model errors:**
+    - Ensure all 4 model files are uploaded correctly
+    - Check file sizes match your trained models
+    - Try restarting the system if issues persist
+    """)
+    
+    # Best Practices
+    st.markdown("## 🌟 Best Practices")
+    
+    st.success("""
+    **For Best Results:**
+    
+    1. **Start with Simulation**: Test the system with simulated attacks before live monitoring
+    2. **Monitor During Activity**: Run live monitoring while browsing, downloading, or streaming
+    3. **Check Multiple Attack Types**: Test different simulation types to verify model performance
+    4. **Analyze Patterns**: Look for consistent detection patterns in the timeline charts
+    5. **Clear Results Regularly**: Reset every few hours to maintain optimal performance
+    6. **Monitor Different Times**: Network patterns change throughout the day
+    """)
 
 if __name__ == "__main__":
     main()
