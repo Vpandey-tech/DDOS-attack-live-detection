@@ -4,6 +4,22 @@ import os
 import tensorflow as tf
 import torch
 import torch.nn as nn
+from tensorflow.keras.layers import Layer
+from tensorflow.keras.utils import custom_object_scope
+
+# Custom Keras layer definition for ExpandDimsLayer
+class ExpandDimsLayer(Layer):
+    def __init__(self, axis=-1, **kwargs):
+        super(ExpandDimsLayer, self).__init__(**kwargs)
+        self.axis = axis
+    
+    def call(self, inputs):
+        return tf.expand_dims(inputs, axis=self.axis)
+    
+    def get_config(self):
+        config = super(ExpandDimsLayer, self).get_config()
+        config.update({'axis': self.axis})
+        return config
 
 class AutoEncoder(nn.Module):
     """PyTorch AutoEncoder model structure"""
@@ -44,9 +60,11 @@ class ModelInference:
     def load_models(self):
         """Load both pre-trained models and scalers"""
         try:
-            # Load LucidCNN model and scaler
+            # Load LucidCNN model and scaler with custom objects
             print("Loading LucidCNN model...")
-            self.lucid_model = tf.keras.models.load_model('lucid.h5')
+            custom_objects = {'ExpandDimsLayer': ExpandDimsLayer}
+            with custom_object_scope(custom_objects):
+                self.lucid_model = tf.keras.models.load_model('lucid.h5')
             
             with open('lucid.pkl', 'rb') as f:
                 self.lucid_scaler = pickle.load(f)
