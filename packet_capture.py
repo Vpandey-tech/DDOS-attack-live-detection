@@ -1,210 +1,134 @@
 import scapy.all as scapy
-from scapy.layers.inet import IP, TCP, UDP
+from scapy.layers.inet import IP
 import threading
 import time
 import logging
-import netifaces
+import psutil
 import socket
 
 class PacketCapture:
     def __init__(self, interface=None, flow_manager=None):
-        self.interface = interface or self.auto_detect_interface()
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(__name__)
+        
         self.flow_manager = flow_manager
         self.running = False
         self.capture_thread = None
         self.packet_count = 0
-        
-        # Configure logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-        
-        # Log detected interface
-        self.logger.info(f"Initialized packet capture for interface: {self.interface}")
-    
-    def auto_detect_interface(self):
-        """Automatically detect the best network interface to use"""
+        self.interface = interface
+
+        if self.interface:
+            self.logger.info(f"PacketCapture initialized for interface: {self.interface}")
+        else:
+            self.logger.warning("PacketCapture initialized without a specified interface.")
+
+    @staticmethod
+    def get_available_interfaces():
+        """
+        FIX: A new static method to get a list of all valid, non-loopback interfaces.
+        This is crucial for making the app portable.
+        """
+        valid_interfaces = []
         try:
-            # Get all available interfaces
-            interfaces = netifaces.interfaces()
-            
-            # Priority order for interface detection
-            interface_priorities = [
-                'WiFi',           # Windows WiFi
-                'Wi-Fi',          # Alternative Windows WiFi
-                'wlan0',          # Linux WiFi
-                'eth0',           # Linux Ethernet
-                'en0',            # macOS WiFi
-                'en1',            # macOS Ethernet
-            ]
-            
-            # Try priority interfaces first
-            for priority_iface in interface_priorities:
-                if priority_iface in interfaces:
-                    # Check if interface has an IP address
-                    try:
-                        addrs = netifaces.ifaddresses(priority_iface)
-                        if netifaces.AF_INET in addrs:
-                            ip_info = addrs[netifaces.AF_INET][0]
-                            if 'addr' in ip_info and ip_info['addr'] != '127.0.0.1':
-                                self.logger.info(f"Auto-detected interface: {priority_iface} ({ip_info['addr']})")
-                                return priority_iface
-                    except:
-                        continue
-            
-            # If no priority interface found, find any interface with IP
-            for iface in interfaces:
-                try:
-                    addrs = netifaces.ifaddresses(iface)
-                    if netifaces.AF_INET in addrs:
-                        ip_info = addrs[netifaces.AF_INET][0]
-                        if 'addr' in ip_info and ip_info['addr'] != '127.0.0.1':
-                            # Check if this looks like the user's WiFi interface (192.168.1.105)
-                            if ip_info['addr'].startswith('192.168.1.'):
-                                self.logger.info(f"Found user's WiFi interface: {iface} ({ip_info['addr']})")
-                                return iface
-                except:
-                    continue
-            
-            # Fallback to first available interface
-            for iface in interfaces:
-                try:
-                    addrs = netifaces.ifaddresses(iface)
-                    if netifaces.AF_INET in addrs:
-                        ip_info = addrs[netifaces.AF_INET][0]
-                        if 'addr' in ip_info and ip_info['addr'] != '127.0.0.1':
-                            self.logger.warning(f"Using fallback interface: {iface} ({ip_info['addr']})")
-                            return iface
-                except:
-                    continue
-            
-            # Ultimate fallback
-            self.logger.warning("No suitable interface found, using default")
-            return interfaces[0] if interfaces else None
-            
+            addrs = psutil.net_if_addrs()
+            stats = psutil.net_if_stats()
+            for iface, addr_list in addrs.items():
+                if iface in stats and stats[iface].isup:
+                    for addr in addr_list:
+                        if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
+                            valid_interfaces.append(iface)
+                            break
         except Exception as e:
-            self.logger.error(f"Error detecting interface: {str(e)}")
+            logging.error(f"Could not get available interfaces: {e}")
+        return valid_interfaces
+
+    @staticmethod
+    def auto_detect_interface():
+        """
+        FIX: A static method for robustly auto-detecting the best network interface.
+        It prioritizes common interface names like Wi-Fi and Ethernet.
+        """
+        logging.info("Auto-detecting network interface with psutil...")
+        try:
+            valid_interfaces = {iface: addr.address for iface, addrs in psutil.net_if_addrs().items()
+                                for addr in addrs if addr.family == socket.AF_INET and not addr.address.startswith('127.')
+                                and iface in psutil.net_if_stats() and psutil.net_if_stats()[iface].isup}
+
+            if not valid_interfaces:
+                logging.warning("No active network interfaces with an IPv4 address found.")
+                return None
+
+            priority_order = ['WiFi', 'Wi-Fi', 'Ethernet', 'eth0', 'en0', 'wlan0']
+            for iface_name in priority_order:
+                if iface_name in valid_interfaces:
+                    logging.info(f"Auto-detected priority interface: {iface_name}")
+                    return iface_name
+            
+            fallback_iface = list(valid_interfaces.keys())[0]
+            logging.warning(f"Using fallback interface: {fallback_iface}")
+            return fallback_iface
+        except Exception as e:
+            logging.error(f"Error auto-detecting interface: {e}")
             return None
     
-    def get_interface_info(self):
-        """Get detailed information about the current interface"""
-        try:
-            if not self.interface:
-                return "No interface selected"
-            
-            addrs = netifaces.ifaddresses(self.interface)
-            info = f"Interface: {self.interface}\n"
-            
-            if netifaces.AF_INET in addrs:
-                ip_info = addrs[netifaces.AF_INET][0]
-                info += f"IP Address: {ip_info.get('addr', 'Unknown')}\n"
-                info += f"Netmask: {ip_info.get('netmask', 'Unknown')}\n"
-            
-            return info
-            
-        except Exception as e:
-            return f"Error getting interface info: {str(e)}"
-    
     def packet_handler(self, packet):
-        """Enhanced packet handler with better filtering and logging"""
+        """Processes each captured packet."""
         try:
             if IP in packet:
-                # Increment packet counter
                 self.packet_count += 1
-                
-                # Extract packet information
-                ip_layer = packet[IP]
-                src_ip = ip_layer.src
-                dst_ip = ip_layer.dst
-                protocol = ip_layer.proto
-                
-                src_port = 0
-                dst_port = 0
-                
-                # Extract port information for TCP/UDP
-                if TCP in packet:
-                    tcp_layer = packet[TCP]
-                    src_port = tcp_layer.sport
-                    dst_port = tcp_layer.dport
-                    protocol = 6  # TCP
-                elif UDP in packet:
-                    udp_layer = packet[UDP]
-                    src_port = udp_layer.sport
-                    dst_port = udp_layer.dport
-                    protocol = 17  # UDP
-                else:
-                    # For other protocols, still process but with 0 ports
-                    pass
-                
-                # Filter out localhost traffic for cleaner results
-                if src_ip == '127.0.0.1' or dst_ip == '127.0.0.1':
-                    return
-                
-                # Create enhanced packet info dictionary
                 packet_info = {
                     'timestamp': time.time(),
-                    'src_ip': src_ip,
-                    'dst_ip': dst_ip,
-                    'src_port': src_port,
-                    'dst_port': dst_port,
-                    'protocol': protocol,
+                    'src_ip': packet[IP].src,
+                    'dst_ip': packet[IP].dst,
+                    'protocol': packet[IP].proto,
                     'length': len(packet),
-                    'packet': packet,
-                    'interface': self.interface
+                    'src_port': packet.sport if packet.haslayer('TCP') or packet.haslayer('UDP') else 0,
+                    'dst_port': packet.dport if packet.haslayer('TCP') or packet.haslayer('UDP') else 0,
                 }
-                
-                # Add packet to flow manager if available
                 if self.flow_manager:
                     self.flow_manager.add_packet(packet_info)
-                
-                # Log packet every 100 packets for monitoring
-                if self.packet_count % 100 == 0:
-                    self.logger.info(f"Captured {self.packet_count} packets from {self.interface}")
-                
-        except Exception as e:
-            self.logger.error(f"Error handling packet: {str(e)}")
+        except Exception:
+            pass
     
-    def start_capture(self):
-        """Enhanced packet capture with better error handling"""
+    def start_capture_thread(self):
+        """Starts the packet capture in a separate thread."""
+        if self.running:
+            self.logger.warning("Capture is already running.")
+            return
+
         if not self.interface:
-            self.logger.error("No network interface available for capture")
-            return False
-        
+            self.logger.error("Cannot start capture: No network interface is set.")
+            raise ValueError("Network interface not provided.")
+
         self.running = True
         self.packet_count = 0
-        self.logger.info(f"Starting packet capture on interface: {self.interface}")
-        
+        self.capture_thread = threading.Thread(target=self._run_sniffer, daemon=True)
+        self.capture_thread.start()
+        self.logger.info(f"Packet capture thread started on interface: {self.interface}")
+
+    def _run_sniffer(self):
+        """Internal method that runs the Scapy sniffer."""
         try:
-            # Enhanced packet capture with optimized filters
             scapy.sniff(
                 iface=self.interface,
                 prn=self.packet_handler,
                 stop_filter=lambda x: not self.running,
-                store=False,  # Don't store packets in memory for performance
-                filter="ip and (tcp or udp)",  # Focus on TCP/UDP traffic
-                timeout=1  # Add timeout for better control
+                store=False,
             )
-            return True
-            
-        except PermissionError:
-            self.logger.error("Permission denied: Packet capture requires administrator/root privileges")
-            return False
-        except OSError as e:
-            self.logger.error(f"OS Error during packet capture: {str(e)}")
-            return False
+        except (PermissionError, OSError) as e:
+            self.logger.error(f"Capture failed on '{self.interface}'. Try running with sudo/admin privileges. Error: {e}")
+            self.running = False
         except Exception as e:
-            self.logger.error(f"Unexpected error during packet capture: {str(e)}")
-            return False
-    
+            self.logger.error(f"An unexpected error occurred during packet capture: {e}")
+            self.running = False
+
     def stop_capture(self):
-        """Stop packet capture with statistics"""
+        """Stops the packet capture."""
+        if not self.running:
+            self.logger.info("Capture is not currently running.")
+            return
+        
         self.running = False
+        if self.capture_thread and self.capture_thread.is_alive():
+            self.capture_thread.join(timeout=2)
         self.logger.info(f"Stopping packet capture. Total packets captured: {self.packet_count}")
-        return self.packet_count
-    
-    def get_capture_stats(self):
-        """Get capture statistics"""
-        return {
-            'interface': self.interface,
-            'packet_count': self.packet_count,
-            'running': self.running
-        }

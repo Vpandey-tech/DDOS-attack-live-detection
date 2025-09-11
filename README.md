@@ -235,17 +235,17 @@ streamlit run app.py --server.port 5000
 ### **Step 3: Install Dependencies**
 ```bash
 # In VS Code terminal
-pip install streamlit pandas plotly numpy scikit-learn tensorflow torch scapy netifaces
+pip install streamlit pandas plotly numpy scikit-learn tensorflow torch scapy psutil
 ```
 
 ### **Step 4: Run the System**
 ```bash
 # In VS Code terminal
-streamlit run app.py --server.port 8501
+streamlit run app.py --server.port 5000
 ```
 
 ### **Step 5: Access Dashboard**
-- Open browser to `http://localhost:8501`
+- Open browser to `http://localhost:5000`
 - Use the interface same as in Replit
 
 ---
