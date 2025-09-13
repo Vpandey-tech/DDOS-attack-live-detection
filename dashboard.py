@@ -7,24 +7,35 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 
+# === FIX STARTS HERE: New helper function to determine status text ===
+def get_status_display_text(threat_level):
+    """Returns the correct status text based on the threat level."""
+    if threat_level == "HIGH":
+        return "ATTACK"
+    elif threat_level == "MEDIUM":
+        return "SUSPICIOUS"
+    else: # LOW
+        return "NORMAL"
+# =====================================================================
+
 class DDOSDetectionDashboard:
     def __init__(self):
         self.threat_colors = {
-            'LOW': '#28a745',
-            'MEDIUM': '#ffc107', 
-            'HIGH': '#dc3545',
+            'LOW': '#28a745',    # Green
+            'MEDIUM': '#ffc107', # Yellow
+            'HIGH': '#dc3545',   # Red
             'UNKNOWN': '#6c757d'
         }
         
-        # Initialize session state for packet tracking
         if 'packet_count' not in st.session_state:
             st.session_state.packet_count = 0
         if 'operation_mode' not in st.session_state:
             st.session_state.operation_mode = 'Live Monitoring'
         self.setup_page_style()
-    
+
     def setup_page_style(self):
         """Setup custom page styling"""
+        # ... (rest of the function is unchanged) ...
         st.markdown("""
         <style>
         .main-header {
@@ -90,9 +101,7 @@ class DDOSDetectionDashboard:
         """, unsafe_allow_html=True)
     
     def render_live_monitoring(self, detection_results, system_running):
-        """Render the Live Traffic Monitoring dashboard"""
-        
-        # Live monitoring header
+        # ... (this function is unchanged) ...
         st.markdown("""
         <div class="main-header">
             <h1>🔍 Live Traffic Monitoring</h1>
@@ -100,30 +109,70 @@ class DDOSDetectionDashboard:
         </div>
         """, unsafe_allow_html=True)
         
-        # Initialize packet counter
         if 'packet_count' not in st.session_state:
             st.session_state.packet_count = len(detection_results) if detection_results else 0
         
-        # Set operation mode
         st.session_state.operation_mode = 'Live Monitoring'
         
-        # Enhanced system status
         self._render_enhanced_status(system_running)
-        
-        # Enhanced metrics overview
         self._render_enhanced_metrics(detection_results)
-        
-        # Real-time alerts with packet indicators
         self._render_enhanced_alerts(detection_results)
-        
-        # Enhanced detection table
         self._render_enhanced_detection_table(detection_results)
-        
-        # Advanced analytics section
         self._render_advanced_analytics(detection_results)
-        
-        # Advanced visualizations
         self._render_advanced_visualizations(detection_results)
+    
+    def _render_enhanced_detection_table(self, detection_results):
+        """Render enhanced detection results table with packet type indicators"""
+        st.subheader("🔍 Live Detection Results")
+        
+        if not detection_results:
+            st.info("💡 **No detection results yet** - Start capturing live traffic or run simulation")
+            return
+        
+        recent_results = detection_results[-50:]
+        
+        table_data = []
+        for result in reversed(recent_results):
+            # === FIX: The 'Status' column is now determined by the threat_level ===
+            status_text = get_status_display_text(result['threat_level'])
+            
+            table_data.append({
+                'Status': status_text, # Use the new dynamic status text
+                'Time': datetime.fromtimestamp(result['timestamp']).strftime('%H:%M:%S'),
+                'Source IP': result['src_ip'],
+                'Dest IP': result['dst_ip'],
+                'Src Port': result['src_port'],
+                'Dst Port': result['dst_port'],
+                'Protocol': result['protocol'],
+                'AI Confidence': f"{result['lucid_confidence']:.3f}",
+                'Anomaly Score': f"{result['reconstruction_error']:.4f}",
+                'Threat Level': result['threat_level']
+                # The 'Final Result' column can be removed as 'Status' now represents it
+            })
+        
+        df = pd.DataFrame(table_data)
+        
+        # === FIX: Updated styling logic to handle the new 'SUSPICIOUS' status ===
+        def style_status(val):
+            if 'ATTACK' in val:
+                return 'background-color: #ffebee; color: #c62828; font-weight: bold;'
+            elif 'SUSPICIOUS' in val:
+                return 'background-color: #fff8e1; color: #f57f17; font-weight: bold;'
+            elif 'NORMAL' in val:
+                return 'background-color: #e8f5e8; color: #2e7d32; font-weight: bold;'
+            return ''
+        
+        def style_threat_level(val):
+            color = self.threat_colors.get(val, '#ffffff')
+            return f'background-color: {color}; color: white; font-weight: bold;'
+        
+        # Apply the updated styling rules
+        styled_df = df.style.apply(lambda row: [style_status(row['Status'])] * len(row), axis=1) \
+                           .applymap(style_threat_level, subset=['Threat Level'])
+        
+        st.dataframe(styled_df, use_container_width=True, height=400)
+
+    # ... (all other functions in the class remain unchanged) ...
     
     def render_testing_simulation(self, simulation_results, simulation_stats=None):
         """Render the Testing & Simulation dashboard"""
@@ -271,7 +320,7 @@ class DDOSDetectionDashboard:
         # Recent activity (last 5 minutes)
         current_time = time.time()
         recent_flows = [r for r in detection_results if current_time - r['timestamp'] <= 300]
-        recent_threats = [r for r in recent_flows if r['final_prediction'] == 'Attack']
+        recent_threats = [r for r in recent_flows if current_time - r['timestamp'] <= 300 and r['final_prediction'] == 'Attack']
         
         # Display metrics
         col1, col2, col3, col4 = st.columns(4)
@@ -332,8 +381,8 @@ class DDOSDetectionDashboard:
                 f"(Protocol: {threat['protocol']})"
             )
     
-    def _render_detection_table(self, detection_results):
-        """Render detection results table"""
+    def _render_detection_table_old(self, detection_results):
+        """Render detection results table (kept for reference)"""
         st.subheader("🔍 Recent Detection Results")
         
         if not detection_results:
@@ -589,8 +638,8 @@ class DDOSDetectionDashboard:
         # Recent activity indicators
         current_time = time.time()
         recent_flows = [r for r in detection_results if current_time - r['timestamp'] <= 60]  # Last minute
-        recent_attacks = [r for r in recent_flows if r['final_prediction'] == 'Attack']
-        recent_normals = [r for r in recent_flows if r['final_prediction'] == 'Benign']
+        recent_attacks = [r for r in recent_flows if current_time - r['timestamp'] <= 60 and r['final_prediction'] == 'Attack']
+        recent_normals = [r for r in recent_flows if current_time - r['timestamp'] <= 60 and r['final_prediction'] == 'Benign']
         
         # Display enhanced metrics
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -711,60 +760,6 @@ class DDOSDetectionDashboard:
         
         with tab3:
             self._render_performance_metrics(detection_results)
-    
-    def _render_enhanced_detection_table(self, detection_results):
-        """Render enhanced detection results table with packet type indicators"""
-        st.subheader("🔍 Live Detection Results")
-        
-        if not detection_results:
-            st.info("💡 **No detection results yet** - Start capturing live traffic or run simulation")
-            return
-        
-        # Enhanced table with packet type indicators
-        recent_results = detection_results[-50:]
-        
-        table_data = []
-        for result in reversed(recent_results):  # Show newest first
-            # Packet type indicator
-            if result['final_prediction'] == 'Attack':
-                packet_indicator = "🚨 ATTACK"
-                row_class = "attack-row"
-            else:
-                packet_indicator = "✅ NORMAL"
-                row_class = "normal-row"
-            
-            table_data.append({
-                'Status': packet_indicator,
-                'Time': datetime.fromtimestamp(result['timestamp']).strftime('%H:%M:%S'),
-                'Source IP': result['src_ip'],
-                'Dest IP': result['dst_ip'],
-                'Src Port': result['src_port'],
-                'Dst Port': result['dst_port'],
-                'Protocol': result['protocol'],
-                'AI Confidence': f"{result['lucid_confidence']:.3f}",
-                'Anomaly Score': f"{result['reconstruction_error']:.4f}",
-                'Threat Level': result['threat_level'],
-                'Final Result': result['final_prediction']
-            })
-        
-        df = pd.DataFrame(table_data)
-        
-        # Enhanced styling for packet types
-        def style_status(val):
-            if '🚨 ATTACK' in val:
-                return 'background-color: #ffebee; color: #c62828; font-weight: bold'
-            elif '✅ NORMAL' in val:
-                return 'background-color: #e8f5e8; color: #2e7d32; font-weight: bold'
-            return ''
-        
-        def style_threat_level(val):
-            color = self.threat_colors.get(val, '#ffffff')
-            return f'background-color: {color}; color: white; font-weight: bold'
-        
-        styled_df = df.style.applymap(style_status, subset=['Status']) \
-                           .applymap(style_threat_level, subset=['Threat Level'])
-        
-        st.dataframe(styled_df, use_container_width=True, height=400)
     
     def _render_advanced_visualizations(self, detection_results):
         """Render advanced visualization charts"""
@@ -898,3 +893,4 @@ class DDOSDetectionDashboard:
                 st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No performance data available")
+

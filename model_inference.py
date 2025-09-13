@@ -6,16 +6,12 @@ import torch
 import torch.nn as nn
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.utils import custom_object_scope
-
-# =================== FIX STARTS HERE ===================
-#
-# FIX: Correctly suppressed warnings without importing from sklearn.
-# The standard 'warnings' module handles this properly.
-#
 import warnings
+import time
+from collections import deque
+
 warnings.filterwarnings(action='ignore', category=UserWarning)
 warnings.filterwarnings(action='ignore', category=FutureWarning)
-# =================== FIX ENDS HERE ===================
 
 class ExpandDimsLayer(Layer):
     """Custom Keras layer required to load the lucid.h5 model."""
@@ -54,7 +50,16 @@ class ModelInference:
         self.lucid_scaler = None
         self.autoencoder_model = None
         self.autoencoder_scaler = None
-        self.anomaly_threshold = None
+        
+        # Updated thresholds based on your normal traffic analysis
+        self.LUCID_THRESHOLD = 0.3              # Below 99th percentile
+        self.AUTOENCODER_THRESHOLD = 500       # Slightly above 99th percentile
+        
+        # False positive prevention
+        self.attack_history = deque(maxlen=5)   # Track last 5 predictions
+        self.last_alert_time = 0
+        self.ALERT_COOLDOWN = 10                # Wait 10 seconds between alerts
+        self.MIN_CONSECUTIVE_ATTACKS = 3        # Need 3+ attacks in window
         
         self.load_models()
     
@@ -73,7 +78,6 @@ class ModelInference:
             with open('auto.pkl', 'rb') as f:
                 auto_data = pickle.load(f)
                 self.autoencoder_scaler = auto_data['scaler']
-                self.anomaly_threshold = auto_data['threshold']
             
             input_dim = self.lucid_scaler.n_features_in_
             self.autoencoder_model = Autoencoder(input_dim=input_dim)
@@ -85,8 +89,21 @@ class ModelInference:
             print(f"❌ CRITICAL ERROR during model loading: {e}")
             raise
 
+    def _is_heavy_usage_flow(self, features):
+        """Detect if this might be legitimate heavy usage (streaming, downloads)"""
+        # Large average packet size + consistent timing = likely streaming/download
+        avg_packet_size = features[39] if len(features) > 39 else 0
+        flow_bytes_per_sec = features[13] if len(features) > 13 else 0
+        
+        # If large packets with high throughput but not extreme rates, likely legitimate
+        if avg_packet_size > 800 and flow_bytes_per_sec > 1000000:  # 1MB/s
+            packet_rate = features[14] if len(features) > 14 else 0
+            if packet_rate < 1000:  # Not extremely high packet rate
+                return True
+        return False
+
     def predict(self, features):
-        """Performs prediction using the hybrid model system."""
+        """Performs prediction with false positive prevention."""
         try:
             features_np = np.array(features).reshape(1, -1)
             features_np = np.nan_to_num(features_np, nan=0.0, posinf=0.0, neginf=0.0)
@@ -94,7 +111,7 @@ class ModelInference:
             # LucidCNN Prediction
             lucid_features = self.lucid_scaler.transform(features_np)
             lucid_confidence = self.lucid_model.predict(lucid_features, verbose=0)[0][0]
-            lucid_class = "Attack" if lucid_confidence > 0.5 else "Benign"
+            lucid_class = "Attack" if lucid_confidence > self.LUCID_THRESHOLD else "Benign"
             
             # AutoEncoder Anomaly Detection
             auto_features = self.autoencoder_scaler.transform(features_np)
@@ -104,29 +121,67 @@ class ModelInference:
                 reconstructed = self.autoencoder_model(auto_input)
                 error = torch.mean((auto_input - reconstructed) ** 2).item()
             
-            is_anomaly = error > self.anomaly_threshold
+            is_anomaly = error > self.AUTOENCODER_THRESHOLD
             
-            # Hybrid Decision Logic
+            # Check if this might be legitimate heavy usage
+            is_heavy_usage = self._is_heavy_usage_flow(features)
+            
+            # Initial prediction
+            both_models_agree = lucid_class == "Attack" and is_anomaly
+            
+            # Add to history
+            current_time = time.time()
+            self.attack_history.append({
+                'time': current_time,
+                'is_attack': both_models_agree and not is_heavy_usage,
+                'confidence': lucid_confidence,
+                'error': error
+            })
+            
+            # Count recent attacks (last 10 seconds)
+            recent_attacks = sum(1 for h in self.attack_history 
+                               if current_time - h['time'] < 10 and h['is_attack'])
+            
+            # Final decision with temporal logic
             final_prediction = "Benign"
-            if lucid_class == "Attack" or is_anomaly:
-                final_prediction = "Attack"
-            
             threat_level = "LOW"
-            if final_prediction == "Attack":
-                threat_level = "HIGH" if (lucid_class == "Attack" and is_anomaly) else "MEDIUM"
             
+            if recent_attacks >= self.MIN_CONSECUTIVE_ATTACKS:
+                # Multiple attacks in short time = likely real attack
+                if current_time - self.last_alert_time > self.ALERT_COOLDOWN:
+                    final_prediction = "Attack"
+                    threat_level = "HIGH"
+                    self.last_alert_time = current_time
+                else:
+                    # In cooldown period
+                    final_prediction = "Attack (Cooldown)"
+                    threat_level = "MEDIUM"
+            elif both_models_agree and not is_heavy_usage:
+                # Single detection without pattern
+                threat_level = "MEDIUM"
+            elif is_heavy_usage:
+                # Detected as heavy usage, likely legitimate
+                threat_level = "LOW"
+                final_prediction = "Heavy Usage (Benign)"
+
+            print(f"L_Score: {lucid_confidence:.2f} | AE_Error: {error:.2f} | Recent_Attacks: {recent_attacks} | Final: {final_prediction}")
+
             return {
                 'lucid_prediction': lucid_class,
                 'lucid_confidence': float(lucid_confidence),
                 'autoencoder_anomaly': is_anomaly,
                 'reconstruction_error': float(error),
                 'final_prediction': final_prediction,
-                'threat_level': threat_level
+                'threat_level': threat_level,
+                'recent_attack_count': recent_attacks,
+                'is_heavy_usage': is_heavy_usage
             }
+            
         except Exception as e:
             print(f"Error during model inference: {e}")
             return {
                 'lucid_prediction': "Error", 'lucid_confidence': 0.0,
                 'autoencoder_anomaly': False, 'reconstruction_error': 0.0,
-                'final_prediction': "Error", 'threat_level': "UNKNOWN"
+                'final_prediction': "Error", 'threat_level': "UNKNOWN",
+                'recent_attack_count': 0, 'is_heavy_usage': False
             }

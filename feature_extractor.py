@@ -1,10 +1,12 @@
+# Corrected feature_extractor.py
+
 import numpy as np
 import time
 from collections import Counter
 
 class FeatureExtractor:
     def __init__(self):
-        # Define the exact 72 features in required order
+        # Note: This list contains more than 72 features. The code below only calculates the first 72.
         self.feature_names = [
             'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
             'Total Length of Fwd Packets', 'Total Length of Bwd Packets',
@@ -70,10 +72,7 @@ class FeatureExtractor:
         timestamps = [p['timestamp'] for p in packets]
         timestamps.sort()
         
-        iats = []
-        for i in range(1, len(timestamps)):
-            iat = timestamps[i] - timestamps[i-1]
-            iats.append(iat)
+        iats = [timestamps[i] - timestamps[i-1] for i in range(1, len(timestamps))]
         
         if not iats:
             return {'total': 0, 'mean': 0, 'std': 0, 'max': 0, 'min': 0}
@@ -95,153 +94,106 @@ class FeatureExtractor:
             bwd_packets = flow.bwd_packets
             all_packets = fwd_packets + bwd_packets
             
-            # Basic counts
             total_fwd_packets = len(fwd_packets)
             total_bwd_packets = len(bwd_packets)
             total_packets = total_fwd_packets + total_bwd_packets
             
-            # Packet lengths
             fwd_lengths = [p['length'] for p in fwd_packets] if fwd_packets else [0]
             bwd_lengths = [p['length'] for p in bwd_packets] if bwd_packets else [0]
             all_lengths = [p['length'] for p in all_packets] if all_packets else [0]
             
-            # Time calculations
             if flow.start_time and all_packets:
                 end_time = max(p['timestamp'] for p in all_packets)
                 flow_duration = end_time - flow.start_time
             else:
                 flow_duration = 0
             
-            # Feature 0: Flow Duration
+            # Features 0-12
             features[0] = flow_duration
-            
-            # Feature 1-2: Packet counts
             features[1] = total_fwd_packets
             features[2] = total_bwd_packets
-            
-            # Feature 3-4: Total lengths
             features[3] = sum(fwd_lengths)
             features[4] = sum(bwd_lengths)
-            
-            # Feature 5-8: Forward packet length statistics
             if fwd_lengths and fwd_lengths != [0]:
                 features[5] = max(fwd_lengths)
                 features[6] = min(fwd_lengths)
                 features[7] = np.mean(fwd_lengths)
                 features[8] = self.safe_std(fwd_lengths)
-            
-            # Feature 9-12: Backward packet length statistics
             if bwd_lengths and bwd_lengths != [0]:
                 features[9] = max(bwd_lengths)
                 features[10] = min(bwd_lengths)
                 features[11] = np.mean(bwd_lengths)
                 features[12] = self.safe_std(bwd_lengths)
             
-            # Feature 13-14: Flow rates
-            features[13] = self.safe_divide(sum(all_lengths), flow_duration)  # Flow Bytes/s
-            features[14] = self.safe_divide(total_packets, flow_duration)     # Flow Packets/s
+            # Features 13-14: Flow rates
+            features[13] = self.safe_divide(sum(all_lengths), flow_duration)
+            features[14] = self.safe_divide(total_packets, flow_duration)
             
-            # Feature 15-18: Flow IAT statistics
+            # Features 15-28: IAT statistics
             flow_iat = self.calculate_iat(all_packets)
-            features[15] = flow_iat['mean']
-            features[16] = flow_iat['std']
-            features[17] = flow_iat['max']
-            features[18] = flow_iat['min']
-            
-            # Feature 19-23: Forward IAT statistics
+            features[15:19] = [flow_iat['mean'], flow_iat['std'], flow_iat['max'], flow_iat['min']]
             fwd_iat = self.calculate_iat(fwd_packets)
-            features[19] = fwd_iat['total']
-            features[20] = fwd_iat['mean']
-            features[21] = fwd_iat['std']
-            features[22] = fwd_iat['max']
-            features[23] = fwd_iat['min']
-            
-            # Feature 24-28: Backward IAT statistics
+            features[19:24] = [fwd_iat['total'], fwd_iat['mean'], fwd_iat['std'], fwd_iat['max'], fwd_iat['min']]
             bwd_iat = self.calculate_iat(bwd_packets)
-            features[24] = bwd_iat['total']
-            features[25] = bwd_iat['mean']
-            features[26] = bwd_iat['std']
-            features[27] = bwd_iat['max']
-            features[28] = bwd_iat['min']
+            features[24:29] = [bwd_iat['total'], bwd_iat['mean'], bwd_iat['std'], bwd_iat['max'], bwd_iat['min']]
             
-            # Feature 29-32: TCP flags (PSH, URG)
-            fwd_psh = sum(1 for p in fwd_packets if self.extract_tcp_flags(p)['PSH'])
-            bwd_psh = sum(1 for p in bwd_packets if self.extract_tcp_flags(p)['PSH'])
-            fwd_urg = sum(1 for p in fwd_packets if self.extract_tcp_flags(p)['URG'])
-            bwd_urg = sum(1 for p in bwd_packets if self.extract_tcp_flags(p)['URG'])
+            # Features 29-32: TCP flags (PSH, URG)
+            features[29] = sum(1 for p in fwd_packets if self.extract_tcp_flags(p)['PSH'])
+            features[30] = sum(1 for p in bwd_packets if self.extract_tcp_flags(p)['PSH'])
+            features[31] = sum(1 for p in fwd_packets if self.extract_tcp_flags(p)['URG'])
+            features[32] = sum(1 for p in bwd_packets if self.extract_tcp_flags(p)['URG'])
             
-            features[29] = fwd_psh
-            features[30] = bwd_psh
-            features[31] = fwd_urg
-            features[32] = bwd_urg
-            
-            # Feature 33-36: Header lengths and packet rates
-            features[33] = total_fwd_packets * 20  # Estimated header length
-            features[34] = total_bwd_packets * 20  # Estimated header length
-            features[35] = self.safe_divide(total_fwd_packets, flow_duration)  # Fwd Packets/s
-            features[36] = self.safe_divide(total_bwd_packets, flow_duration)  # Bwd Packets/s
-            
-            # Feature 37-41: Packet length statistics (all packets)
-            if all_lengths:
-                features[37] = min(all_lengths)      # Min Packet Length
-                features[38] = max(all_lengths)      # Max Packet Length
-                features[39] = np.mean(all_lengths)  # Packet Length Mean
-                features[40] = self.safe_std(all_lengths)  # Packet Length Std
-                features[41] = np.var(all_lengths) if len(all_lengths) > 1 else 0  # Packet Length Variance
-            
-            # Feature 42-49: TCP Flag counts
-            all_flags = {'FIN': 0, 'SYN': 0, 'RST': 0, 'PSH': 0, 'ACK': 0, 'URG': 0, 'CWE': 0, 'ECE': 0}
-            
+            # Features 33-41: Header lengths and packet stats
+            features[33] = total_fwd_packets * 20
+            features[34] = total_bwd_packets * 20
+            features[35] = self.safe_divide(total_fwd_packets, flow_duration)
+            features[36] = self.safe_divide(total_bwd_packets, flow_duration)
+            if all_lengths and all_lengths != [0]:
+                features[37] = min(all_lengths)
+                features[38] = max(all_lengths)
+                features[39] = np.mean(all_lengths)
+                features[40] = self.safe_std(all_lengths)
+                features[41] = np.var(all_lengths)
+
+            # Features 42-49: TCP Flag counts
+            flag_counts = Counter()
             for packet in all_packets:
-                flags = self.extract_tcp_flags(packet)
-                for flag_name in all_flags:
-                    all_flags[flag_name] += flags[flag_name]
+                flag_counts.update(k for k, v in self.extract_tcp_flags(packet).items() if v == 1)
+            features[42:50] = [flag_counts['FIN'], flag_counts['SYN'], flag_counts['RST'], flag_counts['PSH'],
+                               flag_counts['ACK'], flag_counts['URG'], flag_counts['CWE'], flag_counts['ECE']]
             
-            features[42] = all_flags['FIN']
-            features[43] = all_flags['SYN']
-            features[44] = all_flags['RST']
-            features[45] = all_flags['PSH']
-            features[46] = all_flags['ACK']
-            features[47] = all_flags['URG']
-            features[48] = all_flags['CWE']
-            features[49] = all_flags['ECE']
+            # Features 50-53: Ratios and averages
+            features[50] = self.safe_divide(total_bwd_packets, total_fwd_packets)
+            features[51] = np.mean(all_lengths) if all_lengths and all_lengths != [0] else 0
+            features[52] = np.mean(fwd_lengths) if fwd_lengths and fwd_lengths != [0] else 0
+            features[53] = np.mean(bwd_lengths) if bwd_lengths and bwd_lengths != [0] else 0
             
-            # Feature 50-52: Ratios and averages
-            features[50] = self.safe_divide(total_bwd_packets, total_fwd_packets)  # Down/Up Ratio
-            features[51] = np.mean(all_lengths) if all_lengths else 0  # Average Packet Size
-            features[52] = np.mean(fwd_lengths) if fwd_lengths and fwd_lengths != [0] else 0  # Avg Fwd Segment Size
-            features[53] = np.mean(bwd_lengths) if bwd_lengths and bwd_lengths != [0] else 0  # Avg Bwd Segment Size
+            # Features 54-60 are placeholders for simplicity
+            features[54] = features[33]
             
-            # Feature 54-60: Additional header and bulk features
-            features[54] = features[33]  # Fwd Header Length.1 (duplicate)
-            features[55] = 0  # Fwd Avg Bytes/Bulk (complex calculation, simplified)
-            features[56] = 0  # Fwd Avg Packets/Bulk
-            features[57] = 0  # Fwd Avg Bulk Rate
-            features[58] = 0  # Bwd Avg Bytes/Bulk
-            features[59] = 0  # Bwd Avg Packets/Bulk
-            features[60] = 0  # Bwd Avg Bulk Rate
+            # Features 61-68
+            features[61] = total_fwd_packets
+            features[62] = sum(fwd_lengths)
+            features[63] = total_bwd_packets
+            features[64] = sum(bwd_lengths)
+            features[65] = 65535 if fwd_packets else 0
+            features[66] = 65535 if bwd_packets else 0
+            features[67] = total_fwd_packets
+            features[68] = min(fwd_lengths) if fwd_lengths and fwd_lengths != [0] else 0
             
-            # Feature 61-64: Subflow features
-            features[61] = total_fwd_packets    # Subflow Fwd Packets
-            features[62] = sum(fwd_lengths)     # Subflow Fwd Bytes
-            features[63] = total_bwd_packets    # Subflow Bwd Packets
-            features[64] = sum(bwd_lengths)     # Subflow Bwd Bytes
+            # Features 69-71: Active statistics (simplified)
+            # Idle stats are left as 0 as they are complex to calculate without more info
+            if flow_duration > 0:
+                features[69] = flow_duration
+                features[70] = 0
+                features[71] = flow_duration
             
-            # Feature 65-68: Window and segment features
-            features[65] = 65535 if fwd_packets else 0  # Init_Win_bytes_forward (estimated)
-            features[66] = 65535 if bwd_packets else 0  # Init_Win_bytes_backward (estimated)
-            features[67] = total_fwd_packets            # act_data_pkt_fwd
-            features[68] = min(fwd_lengths) if fwd_lengths and fwd_lengths != [0] else 0  # min_seg_size_forward
+            # === BUGFIX ===
+            # The line below was the source of the "index 72 is out of bounds" error.
+            # It has been removed.
+            # features[72] = 0 
             
-            # Feature 69-72: Active and Idle statistics (simplified)
-            # These would require more complex flow state analysis
-            features[69] = flow_duration / 2 if flow_duration > 0 else 0  # Active Mean
-            features[70] = 0  # Active Std
-            features[71] = flow_duration if flow_duration > 0 else 0      # Active Max
-            features[72] = 0  # Active Min (Note: This should be features[72] but we have 73 elements, keeping last as 0)
-            
-            # Ensure we return exactly 72 features
-            return features[:72]
+            return features
             
         except Exception as e:
             print(f"Error extracting features: {str(e)}")

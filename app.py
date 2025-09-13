@@ -550,8 +550,8 @@
 # if __name__ == "__main__":
 #     main()
 
+# Updated and Corrected app.py
 import streamlit as st
-import threading
 import time
 import queue
 from dashboard import DDOSDetectionDashboard
@@ -560,7 +560,6 @@ from packet_capture import PacketCapture
 from flow_manager import FlowManager
 from model_inference import ModelInference
 import os
-import sys
 
 # Configure Streamlit page with enhanced settings
 st.set_page_config(
@@ -601,12 +600,9 @@ def initialize_system():
 
 def render_sidebar():
     """Renders the main control sidebar for the application."""
-    st.sidebar.markdown("""
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                padding: 1rem; border-radius: 10px; color: white; text-align: center; margin-bottom: 1rem;">
-        <h2>🛡️ Control Center</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    st.sidebar.title("🛡️ Control Center")
+    
+    st.sidebar.markdown("---")
     
     st.sidebar.markdown("### 📊 System Status")
     status_color = "🟢" if st.session_state.system_running else "🔴"
@@ -635,21 +631,20 @@ def render_sidebar():
             index=default_index
         )
 
-    flow_timeout = st.sidebar.slider("Flow Timeout (s)", 5, 30, 10)
+    flow_timeout = st.sidebar.slider("Flow Timeout (s)", 5, 30, 15)
     st.sidebar.markdown("---")
     
     st.sidebar.markdown("### 🎯 Real Traffic Detection")
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        if st.button("🟢 Start Detection", disabled=st.session_state.system_running or not selected_interface, use_container_width=True):
+        if st.button("Start Detection", disabled=st.session_state.system_running or not selected_interface, key="start_detection", use_container_width=True):
             start_detection_system(selected_interface, flow_timeout)
     with col2:
-        if st.button("🔴 Stop Detection", disabled=not st.session_state.system_running, use_container_width=True):
+        if st.button("Stop Detection", disabled=not st.session_state.system_running, key="stop_detection", use_container_width=True):
             stop_detection_system()
-
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🎲 Traffic Simulator")
-    st.sidebar.info("Controls are in the 'Testing & Simulation' tab.")
+    st.sidebar.info("Simulator controls are in the 'Testing & Simulation' tab.")
+
 
 def start_detection_system(interface, timeout):
     """Initializes and starts the DDoS detection system."""
@@ -687,108 +682,37 @@ def stop_detection_system():
 def process_flows():
     """Processes flows from the queue and updates results."""
     processed_count = 0
-    max_per_cycle = 50
-    if st.session_state.packet_capture:
-        st.session_state.packet_count = st.session_state.packet_capture.packet_count
-
+    max_per_cycle = 50 # Process up to 50 flows per refresh cycle
+    
     try:
         while not st.session_state.flow_queue.empty() and processed_count < max_per_cycle:
             flow_data = st.session_state.flow_queue.get_nowait()
             result = st.session_state.model_inference.predict(flow_data['features'])
             detection_result = {**flow_data, **result}
+            
             st.session_state.detection_results.append(detection_result)
-            if len(st.session_state.detection_results) > 1000:
-                st.session_state.detection_results.pop(0)
+            # Limit the size of the results list to prevent memory issues
+            if len(st.session_state.detection_results) > 1500:
+                st.session_state.detection_results = st.session_state.detection_results[-1000:]
+            
             processed_count += 1
     except queue.Empty:
-        pass
+        pass # This is expected
     except Exception as e:
         st.error(f"Error processing flows: {str(e)}")
 
 def render_documentation():
-    """Renders the comprehensive system documentation and user guide tab."""
-    st.markdown("# 📚 Complete System Documentation & User Guide")
-    st.markdown("## 🚀 Quick Start Guide")
-    st.info("""
-    **Getting Started in 3 Simple Steps:**
-    1.  **Select Interface**: Choose your active network card (e.g., Wi-Fi) from the sidebar.
-    2.  **Start Detection**: Click "Start Detection" to begin live monitoring.
-    3.  **Analyze**: Watch the dashboard populate with real-time metrics, alerts, and results.
-    """)
-
-    st.markdown("## 🏢 System Architecture")
+    """Renders the documentation tab."""
+    st.header("📚 Documentation & Guide")
     st.markdown("""
-    The system follows a modular, multi-threaded architecture to ensure high performance and real-time processing.
-    ```
-    [User Interface - Streamlit] <--> [Flask Backend - app.py]
-                                              |
-    +-----------------------------------------+------------------------------------------+
-    |                                         |                                          |
-    V                                         V                                          V
-    [Packet Capture Thread]             [Flow Manager Thread]                      [AI Inference Engine]
-    (packet_capture.py)                   (flow_manager.py)                          (model_inference.py)
-    - Captures raw packets                - Assembles packets into flows             - Pre-processes features
-    - Uses Scapy & Psutil                 - Manages flow timeouts                    - Predicts with LucidCNN
-    - Sends packets to Flow Manager         - Extracts 72 features per flow          - Predicts with Autoencoder
-                                          - Pushes flows to queue                    - Returns hybrid result
-    ```
+    This system uses a hybrid AI approach to detect DDoS attacks in real-time.
+    - **LucidCNN**: A deep learning model for classifying known attack patterns.
+    - **Autoencoder**: An anomaly detection model to spot unusual, potentially new attacks.
+    - **Live Monitoring**: Captures and analyzes traffic directly from your network interface.
+    - **Simulator**: Safely test the system's detection capabilities with generated attack traffic.
+    - **Tuning**: The model thresholds have been custom-tuned to balance accuracy and reduce false alarms.
     """)
-
-    st.markdown("## ⚙️ How It Works: A Deep Dive")
-    tab1, tab2, tab3 = st.tabs(["📦 Packet Capture & Flow Assembly", "🤖 AI Detection Engine", "📈 Dashboard & Visualization"])
-    
-    with tab1:
-        st.markdown("### Packet Capture")
-        st.write("""
-        - **Initialization**: When you click "Start Detection", the `PacketCapture` module is initialized on your selected network interface.
-        - **Sniffing**: It runs `Scapy.sniff` in a dedicated background thread, ensuring the UI remains responsive.
-        - **Packet Handling**: Each captured packet is timestamped and basic info (IPs, ports, protocol) is extracted.
-        - **Efficiency**: It operates in a memory-safe mode (`store=False`), immediately passing packets for processing without storing them.
-        
-        ### Flow Assembly
-        - **Bi-directional Flows**: The `FlowManager` receives individual packets and groups them into bi-directional flows using a unique 5-tuple key (`src_ip`, `dst_ip`, `src_port`, `dst_port`, `protocol`).
-        - **Timeout Mechanism**: A flow is considered complete and ready for analysis if no new packets are added to it within a specific timeout period (configurable in the sidebar).
-        - **Feature Extraction**: Once a flow expires, the `FeatureExtractor` calculates 72 statistical features (e.g., packet sizes, inter-arrival times, TCP flags) that describe the flow's behavior.
-        - **Processing Queue**: The finalized flow with its features is placed into a thread-safe queue, ready for the AI engine.
-        """)
-    
-    with tab2:
-        st.markdown("### The Hybrid AI Model")
-        st.write("The system uses a powerful hybrid approach, combining two different AI models for superior accuracy.")
-        
-        st.markdown("#### 1. LucidCNN (Deep Learning Classifier)")
-        st.warning("""
-        - **Purpose**: To classify a flow as either **Benign** or **Attack**.
-        - **Architecture**: A Convolutional Neural Network (CNN) trained on labeled DDoS attack data.
-        - **Strength**: Excellent at recognizing the specific patterns and signatures of known attack types.
-        - **Output**: A confidence score (0.0 to 1.0) indicating the probability of the flow being an attack.
-        """)
-
-        st.markdown("#### 2. Autoencoder (Anomaly Detector)")
-        st.info("""
-        - **Purpose**: To identify network flows that are **anomalous** or unusual.
-        - **Architecture**: A PyTorch-based neural network trained *only* on benign (normal) traffic.
-        - **Strength**: Can detect new, zero-day attacks that don't match known signatures, because it flags anything that deviates from the learned pattern of "normal."
-        - **Output**: A reconstruction error. High error means the traffic is anomalous.
-        """)
-
-        st.markdown("#### Final Decision Logic")
-        st.success("""
-        A flow is flagged as an **Attack** if **EITHER** of these conditions is met:
-        - The **LucidCNN** model is highly confident it's an attack.
-        - The **Autoencoder** model flags the flow as a high-error anomaly.
-        
-        This hybrid logic provides the best of both worlds: high accuracy for known threats and a safety net for unknown ones.
-        """)
-
-    with tab3:
-        st.markdown("### Real-Time Visualization")
-        st.write("""
-        - **State Management**: The UI is built with Streamlit, which uses a session state to store all real-time data like detection results and system status.
-        - **Data Loop**: The `app.py` script runs a main loop that periodically pulls processed flows from the queue and updates the session state.
-        - **Auto-Refresh**: The `st.rerun()` command is called at the end of the loop, forcing the entire dashboard to redraw with the latest data, creating the real-time effect.
-        - **Component-Based UI**: The `dashboard.py` file contains a class that renders all the visual components (metrics, charts, tables) based on the data it receives from the session state. This keeps the UI code clean and separated from the main application logic.
-        """)
+    st.info("This is the final, fully functional version of the DDoS Detection System.")
 
 def main():
     """The main execution function for the Streamlit app."""
@@ -801,28 +725,66 @@ def main():
     with tab1:
         dashboard.render_live_monitoring(st.session_state.detection_results, st.session_state.system_running)
     
+    # =========================================================================
+    # === UPDATED SIMULATOR UI LOGIC STARTS HERE ===
+    # =========================================================================
     with tab2:
-        st.info("The traffic simulator allows you to test the model's detection capabilities safely.")
-        # You would integrate your traffic_simulator controls and display logic here
-        # For now, this is a placeholder.
-        st.markdown("### Simulator Controls")
-        sim_attack_type = st.selectbox("Attack Type to Simulate", ["Normal Traffic", "SYN Flood", "UDP Flood"])
-        if st.button("Start Simulation"):
-            st.session_state.simulation_running = True
-            st.success(f"Simulating {sim_attack_type}...")
-        if st.button("Stop Simulation"):
-            st.session_state.simulation_running = False
-            st.warning("Simulation stopped.")
+        st.header("🎲 Traffic Simulator Controls")
+        st.info("Use these controls to generate simulated network traffic and test the AI's detection capabilities.")
+        
+        sim_attack_type = st.selectbox(
+            "Attack Type to Simulate", 
+            st.session_state.traffic_simulator.attack_options
+        )
+        
+        sim_intensity = st.slider(
+            "Attack Intensity", 
+            min_value=0.0, 
+            max_value=1.0, 
+            value=0.8, # Default to 80% for clear results
+            step=0.1,
+            help="The percentage of traffic that will be malicious (e.g., 0.8 = 80% attack traffic)."
+        )
 
+        sim_packet_rate = st.slider(
+            "Packet Rate (flows/sec)",
+            min_value=5,
+            max_value=100,
+            value=25,
+            step=5
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Start Simulation", disabled=st.session_state.simulation_running, key="start_sim", use_container_width=True):
+                st.session_state.traffic_simulator.set_attack_parameters(sim_attack_type, sim_intensity, sim_packet_rate)
+                st.session_state.traffic_simulator.start_simulation(st.session_state.flow_queue)
+                st.session_state.simulation_running = True
+                st.success(f"Simulating {sim_attack_type}...")
+                st.rerun()
+
+        with col2:
+            if st.button("Stop Simulation", disabled=not st.session_state.simulation_running, key="stop_sim", use_container_width=True):
+                st.session_state.traffic_simulator.stop_simulation()
+                st.session_state.simulation_running = False
+                st.warning("Simulation stopped.")
+                st.rerun()
+        
+        st.markdown("---")
+        # Display the results table in the simulation tab as well for immediate feedback
+        dashboard._render_enhanced_detection_table(st.session_state.detection_results)
+    # =========================================================================
+    # === UPDATED SIMULATOR UI LOGIC ENDS HERE ===
+    # =========================================================================
 
     with tab3:
         render_documentation()
     
+    # Main application loop for processing data and refreshing the UI
     if st.session_state.system_running or st.session_state.simulation_running:
         process_flows()
-        time.sleep(1.5)
+        time.sleep(1.0) # Refresh the UI every 1 second
         st.rerun()
 
 if __name__ == "__main__":
     main()
-
