@@ -1,3 +1,5 @@
+# model_inference.py
+
 import numpy as np
 import pickle
 import os
@@ -51,17 +53,56 @@ class ModelInference:
         self.autoencoder_model = None
         self.autoencoder_scaler = None
         
-        # Updated thresholds based on your normal traffic analysis
-        self.LUCID_THRESHOLD = 0.3              # Below 99th percentile
-        self.AUTOENCODER_THRESHOLD = 500       # Slightly above 99th percentile
+        # === MODIFIED: Replaced static thresholds with dynamic ones ===
+        self.LUCID_THRESHOLD = 0.5  # Fixed threshold for LucidCNN is still okay
+        
+        # Adaptive thresholding state
+        self.baseline_errors = deque(maxlen=1000) # Store up to 1000 normal errors
+        self.current_autoencoder_threshold = 500.0  # A safe default, will be replaced by calibration
+        self.k_multiplier = 3.0  # Sensitivity: mean + (3 * std_dev)
+        # =============================================================
         
         # False positive prevention
-        self.attack_history = deque(maxlen=5)   # Track last 5 predictions
+        self.attack_history = deque(maxlen=5)
         self.last_alert_time = 0
-        self.ALERT_COOLDOWN = 10                # Wait 10 seconds between alerts
-        self.MIN_CONSECUTIVE_ATTACKS = 3        # Need 3+ attacks in window
+        self.ALERT_COOLDOWN = 10
+        self.MIN_CONSECUTIVE_ATTACKS = 3
         
         self.load_models()
+
+    # === NEW METHOD: To initialize the baseline from app.py ===
+    def initialize_baseline(self, initial_errors):
+        """
+        Accepts a list of errors from the initial calibration period
+        and calculates the first dynamic threshold.
+        """
+        if not initial_errors:
+            print("⚠️ WARNING: Calibration finished with no data. Using default threshold.")
+            return
+            
+        self.baseline_errors.extend(initial_errors)
+        self.recalculate_threshold()
+    # =============================================================
+
+    # === NEW METHOD: To calculate the dynamic threshold ===
+    def recalculate_threshold(self):
+        """
+        Calculates a new dynamic threshold based on the mean and standard deviation
+        of the collected normal traffic errors.
+        """
+        if len(self.baseline_errors) > 30:  # Need enough data for a meaningful calculation
+            mean = np.mean(self.baseline_errors)
+            std_dev = np.std(self.baseline_errors)
+            self.current_autoencoder_threshold = mean + (self.k_multiplier * std_dev)
+            
+            # Sanity check: ensure threshold is not excessively low
+            if self.current_autoencoder_threshold < 10:
+                self.current_autoencoder_threshold = 10
+                
+            print(f"✅ ADAPTIVE THRESHOLD UPDATED: New Threshold = {self.current_autoencoder_threshold:.4f} (μ={mean:.4f}, σ={std_dev:.4f})")
+        else:
+            print("Insufficient baseline data to update threshold. Need > 30 samples.")
+    # =============================================================
     
     def load_models(self):
         """Loads both pre-trained models and their corresponding scalers."""
@@ -91,14 +132,12 @@ class ModelInference:
 
     def _is_heavy_usage_flow(self, features):
         """Detect if this might be legitimate heavy usage (streaming, downloads)"""
-        # Large average packet size + consistent timing = likely streaming/download
         avg_packet_size = features[39] if len(features) > 39 else 0
         flow_bytes_per_sec = features[13] if len(features) > 13 else 0
         
-        # If large packets with high throughput but not extreme rates, likely legitimate
-        if avg_packet_size > 800 and flow_bytes_per_sec > 1000000:  # 1MB/s
+        if avg_packet_size > 800 and flow_bytes_per_sec > 1000000:
             packet_rate = features[14] if len(features) > 14 else 0
-            if packet_rate < 1000:  # Not extremely high packet rate
+            if packet_rate < 1000:
                 return True
         return False
 
@@ -121,16 +160,14 @@ class ModelInference:
                 reconstructed = self.autoencoder_model(auto_input)
                 error = torch.mean((auto_input - reconstructed) ** 2).item()
             
-            is_anomaly = error > self.AUTOENCODER_THRESHOLD
+            # === MODIFIED: Use the dynamic threshold ===
+            is_anomaly = error > self.current_autoencoder_threshold
+            # ==========================================
             
-            # Check if this might be legitimate heavy usage
             is_heavy_usage = self._is_heavy_usage_flow(features)
-            
-            # Initial prediction
             both_models_agree = lucid_class == "Attack" and is_anomaly
-            
-            # Add to history
             current_time = time.time()
+            
             self.attack_history.append({
                 'time': current_time,
                 'is_attack': both_models_agree and not is_heavy_usage,
@@ -138,33 +175,36 @@ class ModelInference:
                 'error': error
             })
             
-            # Count recent attacks (last 10 seconds)
             recent_attacks = sum(1 for h in self.attack_history 
                                if current_time - h['time'] < 10 and h['is_attack'])
             
-            # Final decision with temporal logic
             final_prediction = "Benign"
             threat_level = "LOW"
             
             if recent_attacks >= self.MIN_CONSECUTIVE_ATTACKS:
-                # Multiple attacks in short time = likely real attack
                 if current_time - self.last_alert_time > self.ALERT_COOLDOWN:
                     final_prediction = "Attack"
                     threat_level = "HIGH"
                     self.last_alert_time = current_time
                 else:
-                    # In cooldown period
                     final_prediction = "Attack (Cooldown)"
                     threat_level = "MEDIUM"
             elif both_models_agree and not is_heavy_usage:
-                # Single detection without pattern
                 threat_level = "MEDIUM"
             elif is_heavy_usage:
-                # Detected as heavy usage, likely legitimate
                 threat_level = "LOW"
                 final_prediction = "Heavy Usage (Benign)"
 
-            print(f"L_Score: {lucid_confidence:.2f} | AE_Error: {error:.2f} | Recent_Attacks: {recent_attacks} | Final: {final_prediction}")
+            # === NEW: Continuous learning ===
+            # If the final verdict is a low threat, add its error to our baseline to keep learning.
+            if threat_level == 'LOW':
+                self.baseline_errors.append(error)
+                # Periodically recalculate the threshold based on new normal data
+                if len(self.baseline_errors) % 100 == 0:
+                    self.recalculate_threshold()
+            # ===============================
+
+            # print(f"L_Score: {lucid_confidence:.2f} | AE_Error: {error:.2f} | THR: {self.current_autoencoder_threshold:.2f} | Final: {final_prediction}")
 
             return {
                 'lucid_prediction': lucid_class,
@@ -174,7 +214,8 @@ class ModelInference:
                 'final_prediction': final_prediction,
                 'threat_level': threat_level,
                 'recent_attack_count': recent_attacks,
-                'is_heavy_usage': is_heavy_usage
+                'is_heavy_usage': is_heavy_usage,
+                'current_threshold': self.current_autoencoder_threshold
             }
             
         except Exception as e:
@@ -183,5 +224,6 @@ class ModelInference:
                 'lucid_prediction': "Error", 'lucid_confidence': 0.0,
                 'autoencoder_anomaly': False, 'reconstruction_error': 0.0,
                 'final_prediction': "Error", 'threat_level': "UNKNOWN",
-                'recent_attack_count': 0, 'is_heavy_usage': False
+                'recent_attack_count': 0, 'is_heavy_usage': False,
+                'current_threshold': self.current_autoencoder_threshold
             }

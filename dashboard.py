@@ -100,26 +100,24 @@ class DDOSDetectionDashboard:
         </style>
         """, unsafe_allow_html=True)
     
-    def render_live_monitoring(self, detection_results, system_running):
-        # ... (this function is unchanged) ...
+    def render_live_monitoring(self, detection_results, system_running, current_threshold="N/A"):
+        # === THIS IS THE UPDATED FUNCTION ===
         st.markdown("""
         <div class="main-header">
             <h1>🔍 Live Traffic Monitoring</h1>
-            <p>Real-time network analysis with AI-powered threat detection</p>
+            <p>Real-time network analysis with adaptive threat detection</p>
         </div>
         """, unsafe_allow_html=True)
         
-        if 'packet_count' not in st.session_state:
-            st.session_state.packet_count = len(detection_results) if detection_results else 0
-        
-        st.session_state.operation_mode = 'Live Monitoring'
-        
         self._render_enhanced_status(system_running)
-        self._render_enhanced_metrics(detection_results)
+        # === MODIFIED: Pass the threshold down to the metrics display ===
+        self._render_enhanced_metrics(detection_results, current_threshold)
+        # ===============================================================
         self._render_enhanced_alerts(detection_results)
         self._render_enhanced_detection_table(detection_results)
         self._render_advanced_analytics(detection_results)
         self._render_advanced_visualizations(detection_results)
+
     
     def _render_enhanced_detection_table(self, detection_results):
         """Render enhanced detection results table with packet type indicators"""
@@ -609,12 +607,14 @@ class DDOSDetectionDashboard:
             else:
                 st.markdown('<div class="status-active">🔍 LIVE MONITORING</div>', unsafe_allow_html=True)
     
-    def _render_enhanced_metrics(self, detection_results):
-        """Render enhanced metrics with packet indicators"""
+    def _render_enhanced_metrics(self, detection_results, current_threshold):
+        # === THIS IS THE UPDATED FUNCTION ===
         st.subheader("📊 System Metrics")
         
         if not detection_results:
-            col1, col2, col3, col4, col5 = st.columns(5)
+            # === MODIFIED: Added a placeholder for the new column ===
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            # ========================================================
             with col1:
                 st.metric("Total Flows", "0")
             with col2:
@@ -625,6 +625,10 @@ class DDOSDetectionDashboard:
                 st.metric("Detection Rate", "0%")
             with col5:
                 st.metric("Last Update", "N/A")
+            # === NEW: Placeholder for Adaptive Threshold when no data is present ===
+            with col6:
+                st.metric("Adaptive Threshold", "N/A")
+            # =====================================================================
             return
         
         # Calculate enhanced metrics
@@ -641,8 +645,9 @@ class DDOSDetectionDashboard:
         recent_attacks = [r for r in recent_flows if current_time - r['timestamp'] <= 60 and r['final_prediction'] == 'Attack']
         recent_normals = [r for r in recent_flows if current_time - r['timestamp'] <= 60 and r['final_prediction'] == 'Benign']
         
-        # Display enhanced metrics
-        col1, col2, col3, col4, col5 = st.columns(5)
+        # === MODIFIED: Changed from 5 to 6 columns to make space ===
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        # ===========================================================
         
         with col1:
             st.metric("Total Flows", f"{total_flows:,}")
@@ -668,6 +673,11 @@ class DDOSDetectionDashboard:
                 st.metric("Last Update", last_update.strftime("%H:%M:%S"))
             else:
                 st.metric("Last Update", "N/A")
+        
+        # === NEW: This new column displays the live adaptive threshold ===
+        with col6:
+            threshold_val = f"{current_threshold:.2f}" if isinstance(current_threshold, float) else current_threshold
+            st.metric("Adaptive Threshold", threshold_val, help="The current anomaly score needed to trigger an alert. This value adapts to your network's normal behavior.")
     
     def _render_enhanced_alerts(self, detection_results):
         """Render enhanced real-time alerts with packet type indicators"""

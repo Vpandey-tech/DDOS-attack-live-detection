@@ -550,7 +550,8 @@
 # if __name__ == "__main__":
 #     main()
 
-# Updated and Corrected app.py
+## app.py
+
 import streamlit as st
 import time
 import queue
@@ -561,9 +562,8 @@ from flow_manager import FlowManager
 from model_inference import ModelInference
 import os
 
-# Configure Streamlit page with enhanced settings
 st.set_page_config(
-    page_title="Advanced DDoS Detection System",
+    page_title="Adaptive DDoS Detection System",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -577,11 +577,13 @@ def initialize_system():
         st.session_state.flow_queue = queue.Queue(maxsize=2000)
         st.session_state.detection_results = []
         
-        required_files = ['lucid.h5', 'lucid.pkl', 'auto.pth', 'auto.pkl']
-        missing_files = [f for f in required_files if not os.path.exists(f)]
+        # === NEW: State to track if the system has been calibrated ===
+        st.session_state.is_calibrated = False
+        # =============================================================
         
-        if missing_files:
-            st.error(f"❌ Missing required model files: {', '.join(missing_files)}")
+        required_files = ['lucid.h5', 'lucid.pkl', 'auto.pth', 'auto.pkl']
+        if any(not os.path.exists(f) for f in required_files):
+            st.error(f"❌ Missing one or more model files. Please ensure all model files are present.")
             st.stop()
 
         try:
@@ -592,56 +594,102 @@ def initialize_system():
             st.error(f"❌ Failed to load models: {str(e)}")
             st.stop()
         
-        st.session_state.flow_manager = None
-        st.session_state.packet_capture = None
         st.session_state.traffic_simulator = TrafficSimulator()
         st.session_state.available_interfaces = PacketCapture.get_available_interfaces()
         st.session_state.system_initialized = True
 
+# === NEW FUNCTION: To handle the 60-second calibration process ===
+def run_calibration(interface, timeout):
+    """
+    Captures live traffic for 60 seconds, assumes it's normal,
+    and uses it to set the initial adaptive threshold.
+    """
+    st.session_state.flow_manager = FlowManager(flow_queue=st.session_state.flow_queue, timeout=timeout)
+    st.session_state.packet_capture = PacketCapture(interface=interface, flow_manager=st.session_state.flow_manager)
+    
+    if not st.session_state.packet_capture.interface:
+        st.error("❌ Failed to initialize on the selected interface. Cannot calibrate.")
+        return
+
+    st.session_state.packet_capture.start_capture_thread()
+    
+    calibration_errors = []
+    progress_bar = st.progress(0, text="Calibrating... Please wait.")
+    
+    with st.spinner("Learning normal traffic patterns for 60 seconds..."):
+        for i in range(60):
+            time.sleep(1)
+            # Process any flows that completed during this second
+            try:
+                while not st.session_state.flow_queue.empty():
+                    flow_data = st.session_state.flow_queue.get_nowait()
+                    # We only need the reconstruction error for calibration
+                    result = st.session_state.model_inference.predict(flow_data['features'])
+                    calibration_errors.append(result['reconstruction_error'])
+            except queue.Empty:
+                pass
+            progress_bar.progress((i + 1) / 60, text=f"Calibrating... {i+1}/60 seconds complete.")
+
+    st.session_state.packet_capture.stop_capture()
+    
+    # Initialize the baseline with the collected data
+    st.session_state.model_inference.initialize_baseline(calibration_errors)
+    st.session_state.is_calibrated = True
+    
+    progress_bar.empty()
+    st.success(f"✅ Calibration complete! Collected {len(calibration_errors)} flow samples. System is ready.")
+    time.sleep(2)
+    st.rerun()
+# ======================================================================
+
 def render_sidebar():
     """Renders the main control sidebar for the application."""
     st.sidebar.title("🛡️ Control Center")
-    
     st.sidebar.markdown("---")
     
     st.sidebar.markdown("### 📊 System Status")
+    # === MODIFIED: Status now includes calibration state ===
+    if st.session_state.is_calibrated:
+        st.sidebar.success("Status: Calibrated & Ready")
+    else:
+        st.sidebar.warning("Status: Uncalibrated")
+    # ========================================================
+    
     status_color = "🟢" if st.session_state.system_running else "🔴"
     status_text = "ACTIVE" if st.session_state.system_running else "STOPPED"
     st.sidebar.markdown(f"**Detection System:** {status_color} {status_text}")
-    
-    sim_color = "🟢" if st.session_state.simulation_running else "🔴"
-    sim_text = "ACTIVE" if st.session_state.simulation_running else "STOPPED"
-    st.sidebar.markdown(f"**Traffic Simulator:** {sim_color} {sim_text}")
     st.sidebar.markdown("---")
     
     st.sidebar.markdown("### 🌐 Network Configuration")
-    auto_detected_interface = PacketCapture.auto_detect_interface()
-    try:
-        default_index = st.session_state.available_interfaces.index(auto_detected_interface)
-    except (ValueError, TypeError):
-        default_index = 0
-
     if not st.session_state.available_interfaces:
         st.sidebar.error("No network interfaces found!")
         selected_interface = None
     else:
         selected_interface = st.sidebar.selectbox(
-            "Select Network Interface",
-            st.session_state.available_interfaces,
-            index=default_index
+            "Select Network Interface", st.session_state.available_interfaces,
+            index=0 if not PacketCapture.auto_detect_interface() in st.session_state.available_interfaces else st.session_state.available_interfaces.index(PacketCapture.auto_detect_interface())
         )
-
     flow_timeout = st.sidebar.slider("Flow Timeout (s)", 5, 30, 15)
     st.sidebar.markdown("---")
     
+    # === MODIFIED: New two-step UI for calibration and detection ===
     st.sidebar.markdown("### 🎯 Real Traffic Detection")
+    st.sidebar.info("System must be calibrated on normal traffic before detection can start.")
+
+    if st.sidebar.button("Step 1: Calibrate System", disabled=st.session_state.is_calibrated, use_container_width=True, type="secondary"):
+        if selected_interface:
+            run_calibration(selected_interface, flow_timeout)
+        else:
+            st.sidebar.error("Please select a valid interface first.")
+            
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        if st.button("Start Detection", disabled=st.session_state.system_running or not selected_interface, key="start_detection", use_container_width=True):
+        if st.button("Step 2: Start Detection", disabled=not st.session_state.is_calibrated or st.session_state.system_running, key="start_detection", use_container_width=True, type="primary"):
             start_detection_system(selected_interface, flow_timeout)
     with col2:
         if st.button("Stop Detection", disabled=not st.session_state.system_running, key="stop_detection", use_container_width=True):
             stop_detection_system()
+    # ======================================================================
     st.sidebar.markdown("---")
     st.sidebar.info("Simulator controls are in the 'Testing & Simulation' tab.")
 
@@ -682,7 +730,7 @@ def stop_detection_system():
 def process_flows():
     """Processes flows from the queue and updates results."""
     processed_count = 0
-    max_per_cycle = 50 # Process up to 50 flows per refresh cycle
+    max_per_cycle = 50
     
     try:
         while not st.session_state.flow_queue.empty() and processed_count < max_per_cycle:
@@ -691,15 +739,15 @@ def process_flows():
             detection_result = {**flow_data, **result}
             
             st.session_state.detection_results.append(detection_result)
-            # Limit the size of the results list to prevent memory issues
             if len(st.session_state.detection_results) > 1500:
                 st.session_state.detection_results = st.session_state.detection_results[-1000:]
             
             processed_count += 1
     except queue.Empty:
-        pass # This is expected
+        pass
     except Exception as e:
         st.error(f"Error processing flows: {str(e)}")
+
 
 def render_documentation():
     """Renders the documentation tab."""
@@ -723,67 +771,49 @@ def main():
     tab1, tab2, tab3 = st.tabs(["🔍 Live Traffic Monitoring", "🧪 Testing & Simulation", "📚 Documentation & Guide"])
     
     with tab1:
-        dashboard.render_live_monitoring(st.session_state.detection_results, st.session_state.system_running)
+        # === MODIFIED: Pass the current threshold to the dashboard ===
+        current_threshold = st.session_state.model_inference.current_autoencoder_threshold if st.session_state.is_calibrated else "N/A"
+        dashboard.render_live_monitoring(
+            detection_results=st.session_state.detection_results, 
+            system_running=st.session_state.system_running,
+            current_threshold=current_threshold
+        )
+        # =============================================================
     
-    # =========================================================================
-    # === UPDATED SIMULATOR UI LOGIC STARTS HERE ===
-    # =========================================================================
     with tab2:
         st.header("🎲 Traffic Simulator Controls")
-        st.info("Use these controls to generate simulated network traffic and test the AI's detection capabilities.")
-        
+        # ... (rest of the simulator UI remains the same)
         sim_attack_type = st.selectbox(
             "Attack Type to Simulate", 
             st.session_state.traffic_simulator.attack_options
         )
-        
         sim_intensity = st.slider(
-            "Attack Intensity", 
-            min_value=0.0, 
-            max_value=1.0, 
-            value=0.8, # Default to 80% for clear results
-            step=0.1,
-            help="The percentage of traffic that will be malicious (e.g., 0.8 = 80% attack traffic)."
+            "Attack Intensity", 0.0, 1.0, 0.8, 0.1
         )
-
         sim_packet_rate = st.slider(
-            "Packet Rate (flows/sec)",
-            min_value=5,
-            max_value=100,
-            value=25,
-            step=5
+            "Packet Rate (flows/sec)", 5, 100, 25, 5
         )
-        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Start Simulation", disabled=st.session_state.simulation_running, key="start_sim", use_container_width=True):
                 st.session_state.traffic_simulator.set_attack_parameters(sim_attack_type, sim_intensity, sim_packet_rate)
                 st.session_state.traffic_simulator.start_simulation(st.session_state.flow_queue)
                 st.session_state.simulation_running = True
-                st.success(f"Simulating {sim_attack_type}...")
                 st.rerun()
-
         with col2:
             if st.button("Stop Simulation", disabled=not st.session_state.simulation_running, key="stop_sim", use_container_width=True):
                 st.session_state.traffic_simulator.stop_simulation()
                 st.session_state.simulation_running = False
-                st.warning("Simulation stopped.")
                 st.rerun()
-        
         st.markdown("---")
-        # Display the results table in the simulation tab as well for immediate feedback
         dashboard._render_enhanced_detection_table(st.session_state.detection_results)
-    # =========================================================================
-    # === UPDATED SIMULATOR UI LOGIC ENDS HERE ===
-    # =========================================================================
 
     with tab3:
-        render_documentation()
+        render_documentation() # Placeholder
     
-    # Main application loop for processing data and refreshing the UI
     if st.session_state.system_running or st.session_state.simulation_running:
         process_flows()
-        time.sleep(1.0) # Refresh the UI every 1 second
+        time.sleep(1.0)
         st.rerun()
 
 if __name__ == "__main__":
