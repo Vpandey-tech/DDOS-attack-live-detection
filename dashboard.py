@@ -119,56 +119,56 @@ class DDOSDetectionDashboard:
         self._render_advanced_visualizations(detection_results)
 
     
+
     def _render_enhanced_detection_table(self, detection_results):
-        """Render enhanced detection results table with packet type indicators"""
+        """Render enhanced detection results table with packet type and status indicators"""
         st.subheader("🔍 Live Detection Results")
         
         if not detection_results:
-            st.info("💡 **No detection results yet** - Start capturing live traffic or run simulation")
+            st.info("💡 **No detection results yet** - Waiting for traffic...")
             return
         
+        # Strictly show the last 50 results
         recent_results = detection_results[-50:]
         
         table_data = []
         for result in reversed(recent_results):
-            # === FIX: The 'Status' column is now determined by the threat_level ===
-            status_text = get_status_display_text(result['threat_level'])
+            # Determine status display
+            status = result.get('status', 'ANALYZED')
+            threat = result['threat_level']
             
-            table_data.append({
-                'Status': status_text, # Use the new dynamic status text
+            # Formatting logic
+            row = {
                 'Time': datetime.fromtimestamp(result['timestamp']).strftime('%H:%M:%S'),
-                'Source IP': result['src_ip'],
-                'Dest IP': result['dst_ip'],
-                'Src Port': result['src_port'],
-                'Dst Port': result['dst_port'],
+                'Source': f"{result['src_ip']}:{result['src_port']}",
+                'Destination': f"{result['dst_ip']}:{result['dst_port']}",
                 'Protocol': result['protocol'],
-                'AI Confidence': f"{result['lucid_confidence']:.3f}",
-                'Anomaly Score': f"{result['reconstruction_error']:.4f}",
-                'Threat Level': result['threat_level']
-                # The 'Final Result' column can be removed as 'Status' now represents it
-            })
+                'Threat Level': threat,
+                'Status': status,
+                'Confidence': f"{result['lucid_confidence']:.2f}",
+                'Score': f"{result['reconstruction_error']:.2f}"
+            }
+            table_data.append(row)
         
         df = pd.DataFrame(table_data)
         
-        # === FIX: Updated styling logic to handle the new 'SUSPICIOUS' status ===
-        def style_status(val):
-            if 'ATTACK' in val:
-                return 'background-color: #ffebee; color: #c62828; font-weight: bold;'
-            elif 'SUSPICIOUS' in val:
-                return 'background-color: #fff8e1; color: #f57f17; font-weight: bold;'
-            elif 'NORMAL' in val:
-                return 'background-color: #e8f5e8; color: #2e7d32; font-weight: bold;'
-            return ''
-        
-        def style_threat_level(val):
-            color = self.threat_colors.get(val, '#ffffff')
-            return f'background-color: {color}; color: white; font-weight: bold;'
-        
-        # Apply the updated styling rules
-        styled_df = df.style.apply(lambda row: [style_status(row['Status'])] * len(row), axis=1) \
-                           .applymap(style_threat_level, subset=['Threat Level'])
-        
-        st.dataframe(styled_df, use_container_width=True, height=400)
+        # Color styling
+        def highlight_row(row):
+            styles = [''] * len(row)
+            if row['Status'] == 'BLOCKED':
+                return ['background-color: #ffcdd2; color: #b71c1c; font-weight: bold'] * len(row)
+            elif row['Status'] == 'FLAGGED':
+                return ['background-color: #fff9c4; color: #f57f17'] * len(row)
+            elif row['Threat Level'] == 'HIGH':
+                return ['background-color: #ff8a80; color: white'] * len(row)
+            return styles
+
+        st.dataframe(
+            df.style.apply(highlight_row, axis=1),
+            width="stretch", 
+            height=400,
+            hide_index=True
+        )
 
     # ... (all other functions in the class remain unchanged) ...
     
@@ -424,7 +424,7 @@ class DDOSDetectionDashboard:
         styled_df = df.style.applymap(style_prediction, subset=['Final Prediction']) \
                            .applymap(style_threat_level, subset=['Threat Level'])
         
-        st.dataframe(styled_df, use_container_width=True)
+        st.dataframe(styled_df, width="stretch")
     
     def _render_visualizations(self, detection_results):
         """Render data visualizations"""
@@ -857,7 +857,7 @@ class DDOSDetectionDashboard:
                     'Risk Level': 'HIGH' if data['count'] > 10 else 'MEDIUM' if data['count'] > 5 else 'LOW'
                 })
             
-            st.dataframe(pd.DataFrame(threat_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(threat_data), width="stretch")
         else:
             st.info("No threat sources identified")
     

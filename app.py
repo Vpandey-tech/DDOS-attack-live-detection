@@ -560,6 +560,7 @@ from traffic_simulator import TrafficSimulator
 from packet_capture import PacketCapture
 from flow_manager import FlowManager
 from model_inference import ModelInference
+from prevention_system import PreventionSystem  # Added import
 import os
 
 st.set_page_config(
@@ -594,6 +595,10 @@ def initialize_system():
             st.error(f"❌ Failed to load models: {str(e)}")
             st.stop()
         
+        # Initialize Prevention System
+        if 'prevention_system' not in st.session_state:
+            st.session_state.prevention_system = PreventionSystem(simulation_mode=True)
+
         st.session_state.traffic_simulator = TrafficSimulator()
         st.session_state.available_interfaces = PacketCapture.get_available_interfaces()
         st.session_state.system_initialized = True
@@ -645,6 +650,39 @@ def run_calibration(interface, timeout):
 def render_sidebar():
     """Renders the main control sidebar for the application."""
     st.sidebar.title("🛡️ Control Center")
+    st.sidebar.markdown("---")
+    
+    st.sidebar.markdown("### 🛡️ Prevention System")
+    prev_mode = st.sidebar.radio(
+        "Mode:", 
+        ("Simulation (Safe)", "Active (Block IPs)"),
+        index=0 if st.session_state.prevention_system.simulation_mode else 1,
+        help="Active mode will modify Firewall rules. Simulation only logs."
+    )
+    
+    # Update simulation mode based on selection
+    is_simulation = (prev_mode == "Simulation (Safe)")
+    if is_simulation != st.session_state.prevention_system.simulation_mode:
+        st.session_state.prevention_system.toggle_mode(is_simulation)
+        if not is_simulation:
+            st.sidebar.warning("⚠️ ACTIVE BLOCKING ENABLED")
+    
+    # Blocked IPs viewer
+    blocked = st.session_state.prevention_system.get_blocked_ips()
+    with st.sidebar.expander(f"🚫 Blocked IPs ({len(blocked)})"):
+        if blocked:
+            for ip in blocked:
+                col_a, col_b = st.columns([3, 1])
+                col_a.text(ip)
+                if col_b.button("❌", key=f"unblock_{ip}", help="Unblock IP"):
+                    st.session_state.prevention_system.unblock_ip(ip)
+                    st.rerun()
+            if st.button("Unblock All", key="unblock_all"):
+                st.session_state.prevention_system.clear_all_blocks()
+                st.rerun()
+        else:
+            st.info("No IPs currently blocked.")
+
     st.sidebar.markdown("---")
     
     st.sidebar.markdown("### 📊 System Status")
@@ -737,6 +775,16 @@ def process_flows():
             flow_data = st.session_state.flow_queue.get_nowait()
             result = st.session_state.model_inference.predict(flow_data['features'])
             detection_result = {**flow_data, **result}
+            
+            # === INTEGRATE PREVENTION SYSTEM ===
+            if result['threat_level'] == 'HIGH':
+                source_ip = flow_data['src_ip']
+                blocked = st.session_state.prevention_system.block_ip(source_ip, reason="High Threat DDoS")
+                if blocked:
+                    detection_result['status'] = 'BLOCKED'
+                else:
+                    detection_result['status'] = 'FLAGGED'
+            # ==================================
             
             st.session_state.detection_results.append(detection_result)
             if len(st.session_state.detection_results) > 1500:
