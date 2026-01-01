@@ -590,6 +590,10 @@ def initialize_system():
         try:
             with st.spinner("Loading AI models..."):
                 st.session_state.model_inference = ModelInference()
+                # === PERSISTENCE RESTORATION ===
+                if st.session_state.model_inference.load_baseline_from_disk():
+                    st.session_state.is_calibrated = True
+                # ===============================
             st.success("✅ AI Models loaded successfully!")
         except Exception as e:
             st.error(f"❌ Failed to load models: {str(e)}")
@@ -824,7 +828,8 @@ def main():
         dashboard.render_live_monitoring(
             detection_results=st.session_state.detection_results, 
             system_running=st.session_state.system_running,
-            current_threshold=current_threshold
+            current_threshold=current_threshold,
+            raw_packet_count=raw_count
         )
         # =============================================================
     

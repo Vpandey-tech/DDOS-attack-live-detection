@@ -1,10 +1,12 @@
 import scapy.all as scapy
-from scapy.layers.inet import IP
+from scapy.layers.inet import IP, TCP, UDP
 import threading
 import time
 import logging
 import psutil
 import socket
+import os
+import struct
 
 class PacketCapture:
     def __init__(self, interface=None, flow_manager=None):
@@ -16,6 +18,7 @@ class PacketCapture:
         self.capture_thread = None
         self.packet_count = 0
         self.interface = interface
+        self.use_raw_socket = False
 
         if self.interface:
             self.logger.info(f"PacketCapture initialized for interface: {self.interface}")
@@ -25,8 +28,7 @@ class PacketCapture:
     @staticmethod
     def get_available_interfaces():
         """
-        FIX: A new static method to get a list of all valid, non-loopback interfaces.
-        This is crucial for making the app portable.
+        Get a list of all valid, non-loopback interfaces.
         """
         valid_interfaces = []
         try:
@@ -45,8 +47,8 @@ class PacketCapture:
     @staticmethod
     def auto_detect_interface():
         """
-        FIX: A static method for robustly auto-detecting the best network interface.
-        It prioritizes common interface names like Wi-Fi and Ethernet.
+        Auto-detect the best network interface.
+        Prioritizes common interface names like Wi-Fi and Ethernet.
         """
         logging.info("Auto-detecting network interface with psutil...")
         try:
@@ -72,26 +74,61 @@ class PacketCapture:
             return None
     
     def packet_handler(self, packet):
-        """Processes each captured packet."""
+        """
+        Processes each captured packet.
+        Handles both Scapy packet objects and manual submissions.
+        """
         try:
+            # Check if it's a Scapy packet
             if IP in packet:
-                self.packet_count += 1
-                packet_info = {
-                    'timestamp': time.time(),
-                    'src_ip': packet[IP].src,
-                    'dst_ip': packet[IP].dst,
-                    'protocol': packet[IP].proto,
-                    'length': len(packet),
-                    'src_port': packet.sport if packet.haslayer('TCP') or packet.haslayer('UDP') else 0,
-                    'dst_port': packet.dport if packet.haslayer('TCP') or packet.haslayer('UDP') else 0,
-                }
-                if self.flow_manager:
-                    self.flow_manager.add_packet(packet_info)
+                src_ip = packet[IP].src
+                dst_ip = packet[IP].dst
+                proto = packet[IP].proto
+                length = len(packet)
+                
+                src_port = 0
+                dst_port = 0
+                
+                if TCP in packet:
+                    src_port = packet[TCP].sport
+                    dst_port = packet[TCP].dport
+                elif UDP in packet:
+                    src_port = packet[UDP].sport
+                    dst_port = packet[UDP].dport
+                
+                self._submit_packet(src_ip, dst_ip, proto, length, src_port, dst_port)
+
         except Exception:
             pass
-    
+
+    def _submit_packet(self, src, dst, proto, length, sport, dport):
+        """Helper to submit parsed stats to flow manager"""
+        self.packet_count += 1
+        packet_info = {
+            'timestamp': time.time(),
+            'src_ip': src,
+            'dst_ip': dst,
+            'protocol': proto,
+            'length': length,
+            'src_port': sport,
+            'dst_port': dport,
+        }
+        if self.flow_manager:
+            self.flow_manager.add_packet(packet_info)
+
+    def _get_ip_address(self, iface_name):
+        try:
+            addrs = psutil.net_if_addrs()
+            if iface_name in addrs:
+                for addr in addrs[iface_name]:
+                    if addr.family == socket.AF_INET:
+                        return addr.address
+        except Exception:
+            pass
+        return None
+
     def start_capture_thread(self):
-        """Starts the packet capture in a separate thread."""
+        """Starts the packet capture in a separate thread. Tries Raw Socket first on Windows."""
         if self.running:
             self.logger.warning("Capture is already running.")
             return
@@ -102,12 +139,104 @@ class PacketCapture:
 
         self.running = True
         self.packet_count = 0
-        self.capture_thread = threading.Thread(target=self._run_sniffer, daemon=True)
-        self.capture_thread.start()
-        self.logger.info(f"Packet capture thread started on interface: {self.interface}")
+        
+        # Determine capture method
+        # Raw sockets are faster but require Admin and binding to specific IP
+        self.use_raw_socket = False
+        if os.name == 'nt':
+            try:
+                # Test if we can open a raw socket
+                # Note: This checks for Admin privileges effectively
+                s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_IP)
+                s.close()
+                self.use_raw_socket = True
+            except PermissionError:
+                self.logger.warning("Admin privileges missing for Raw Sockets. Falling back to Scapy.")
+            except Exception as e:
+                self.logger.warning(f"Raw socket check failed: {e}. Falling back to Scapy.")
 
-    def _run_sniffer(self):
-        """Internal method that runs the Scapy sniffer."""
+        if self.use_raw_socket:
+            self.logger.info(f"🚀 PERFORMANCE MODE: Starting Raw Socket Sniffer on {self.interface}")
+            self.capture_thread = threading.Thread(target=self._run_raw_socket_sniffer, daemon=True)
+        else:
+            self.logger.info(f"🛡️ STANDARD MODE: Starting Scapy Sniffer on {self.interface}")
+            self.capture_thread = threading.Thread(target=self._run_scapy_sniffer, daemon=True)
+            
+        self.capture_thread.start()
+
+    def _run_raw_socket_sniffer(self):
+        """High-performance raw socket sniffer for Windows."""
+        host_ip = self._get_ip_address(self.interface)
+        if not host_ip:
+            self.logger.error("Could not resolve IP for interface. Aborting raw socket sniff.")
+            self.running = False
+            return
+
+        sniffer = None
+        try:
+            sniffer = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_IP)
+            sniffer.bind((host_ip, 0))
+            sniffer.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+            # Windows specific: Receive all packets (Promiscuous-like)
+            sniffer.ioctl(socket.SIO_RCVALL, socket.RCVALL_ON)
+            
+            # Pre-allocate buffer
+            RECV_BUFFER_SIZE = 65535
+            
+            while self.running:
+                # Receive packet
+                raw_buffer = sniffer.recvfrom(RECV_BUFFER_SIZE)[0]
+                
+                # Manual parsing for speed (IP Header is first 20 bytes usually)
+                # IHL is in the first byte (lower 4 bits) * 4
+                version_ihl = raw_buffer[0]
+                ihl = (version_ihl & 0xF) * 4
+                
+                protocol = raw_buffer[9]
+                
+                # Filter useful protocols early: 6=TCP, 17=UDP
+                if protocol not in (6, 17):
+                    continue
+                
+                # Source and Dest IP are at offset 12 and 16
+                s_addr = socket.inet_ntoa(raw_buffer[12:16])
+                d_addr = socket.inet_ntoa(raw_buffer[16:20])
+                total_len = len(raw_buffer)
+                
+                src_port = 0
+                dst_port = 0
+                
+                # Parse Transport Layer
+                if protocol == 6: # TCP
+                    # TCP Header starts after IHL
+                    tcp_header = raw_buffer[ihl:ihl+20]
+                    # Source Port (2 bytes), Dest Port (2 bytes)
+                    # !HH means Big Endian, Unsigned Short, Unsigned Short
+                    ports = struct.unpack('!HH', tcp_header[0:4])
+                    src_port = ports[0]
+                    dst_port = ports[1]
+                    
+                elif protocol == 17: # UDP
+                    udp_header = raw_buffer[ihl:ihl+8]
+                    ports = struct.unpack('!HH', udp_header[0:4])
+                    src_port = ports[0]
+                    dst_port = ports[1]
+                    
+                self._submit_packet(s_addr, d_addr, protocol, total_len, src_port, dst_port)
+                
+        except Exception as e:
+            self.logger.error(f"Raw Socket Sniffer critical error: {e}")
+        finally:
+            if sniffer:
+                try:
+                    sniffer.ioctl(socket.SIO_RCVALL, socket.RCVALL_OFF)
+                    sniffer.close()
+                except:
+                    pass
+            self.running = False
+
+    def _run_scapy_sniffer(self):
+        """Standard Scapy sniffer (Fallback)."""
         try:
             scapy.sniff(
                 iface=self.interface,
@@ -125,7 +254,6 @@ class PacketCapture:
     def stop_capture(self):
         """Stops the packet capture."""
         if not self.running:
-            self.logger.info("Capture is not currently running.")
             return
         
         self.running = False

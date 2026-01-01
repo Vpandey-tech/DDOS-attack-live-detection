@@ -1,6 +1,6 @@
 import time
 import threading
-from collections import defaultdict
+from collections import defaultdict, deque
 from feature_extractor import FeatureExtractor
 
 class Flow:
@@ -11,6 +11,7 @@ class Flow:
         self.dst_port = dst_port
         self.protocol = protocol
         
+        # Use simple lists, but we generally process often so they don't grow indefinitely
         self.fwd_packets = []
         self.bwd_packets = []
         self.start_time = None
@@ -45,10 +46,12 @@ class Flow:
 class FlowManager:
     def __init__(self, flow_queue, timeout=10):
         self.flows = {}
+        # Ensure flow_queue is treated safely; if it's a Queue, this is fine
         self.flow_queue = flow_queue
         self.timeout = timeout
         self.feature_extractor = FeatureExtractor()
-        self.lock = threading.Lock()
+        # Use RLock for reentrant safety
+        self.lock = threading.RLock()
         
         # Start cleanup thread
         self.cleanup_thread = threading.Thread(target=self._cleanup_expired_flows, daemon=True)
@@ -96,16 +99,25 @@ class FlowManager:
         """Clean up expired flows and extract features"""
         while True:
             try:
+                current_time = time.time()
+                expired_flows = []
+                
+                # Minimize lock time: Identify expired first
                 with self.lock:
-                    expired_flows = []
-                    for flow_key, flow in list(self.flows.items()):
-                        if flow.is_expired(self.timeout):
+                    # Create a snapshot of keys to iterate safely
+                    keys = list(self.flows.keys())
+                    for flow_key in keys:
+                        flow = self.flows.get(flow_key)
+                        if flow and flow.is_expired(self.timeout):
                             expired_flows.append((flow_key, flow))
-                    
-                    # Process expired flows
-                    for flow_key, flow in expired_flows:
-                        self._process_flow(flow)
-                        del self.flows[flow_key]
+                            
+                    # Remove from main dict immediately
+                    for k, _ in expired_flows:
+                        del self.flows[k]
+                
+                # Process strictly OUTSIDE the lock to avoid blocking capture threads
+                for flow_key, flow in expired_flows:
+                    self._process_flow(flow)
                 
                 time.sleep(1)  # Check every second
                 
@@ -116,7 +128,7 @@ class FlowManager:
     def _process_flow(self, flow):
         """Extract features from flow and add to queue"""
         try:
-            # Only process flows with sufficient packets
+            # Only process flows with sufficient packets (min 2 for meaning)
             if len(flow.fwd_packets) + len(flow.bwd_packets) >= 2:
                 features = self.feature_extractor.extract_features(flow)
                 

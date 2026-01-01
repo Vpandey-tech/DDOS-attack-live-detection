@@ -100,7 +100,7 @@ class DDOSDetectionDashboard:
         </style>
         """, unsafe_allow_html=True)
     
-    def render_live_monitoring(self, detection_results, system_running, current_threshold="N/A"):
+    def render_live_monitoring(self, detection_results, system_running, current_threshold="N/A", raw_packet_count=0):
         # === THIS IS THE UPDATED FUNCTION ===
         st.markdown("""
         <div class="main-header">
@@ -111,7 +111,7 @@ class DDOSDetectionDashboard:
         
         self._render_enhanced_status(system_running)
         # === MODIFIED: Pass the threshold down to the metrics display ===
-        self._render_enhanced_metrics(detection_results, current_threshold)
+        self._render_enhanced_metrics(detection_results, current_threshold, raw_packet_count=raw_packet_count)
         # ===============================================================
         self._render_enhanced_alerts(detection_results)
         self._render_enhanced_detection_table(detection_results)
@@ -607,7 +607,7 @@ class DDOSDetectionDashboard:
             else:
                 st.markdown('<div class="status-active">🔍 LIVE MONITORING</div>', unsafe_allow_html=True)
     
-    def _render_enhanced_metrics(self, detection_results, current_threshold):
+    def _render_enhanced_metrics(self, detection_results, current_threshold, raw_packet_count=0):
         # === THIS IS THE UPDATED FUNCTION ===
         st.subheader("📊 System Metrics")
         
@@ -616,9 +616,9 @@ class DDOSDetectionDashboard:
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             # ========================================================
             with col1:
-                st.metric("Total Flows", "0")
+                st.metric("Raw Packets", f"{raw_packet_count:,}", help="Total raw packets captured by the network interface")
             with col2:
-                st.metric("Normal Packets", "0", help="Benign traffic detected")
+                st.metric("Active Flows", "0", help="Aggregated network conversations")
             with col3:
                 st.metric("Attack Packets", "0", help="Malicious traffic detected")
             with col4:
@@ -643,24 +643,20 @@ class DDOSDetectionDashboard:
         current_time = time.time()
         recent_flows = [r for r in detection_results if current_time - r['timestamp'] <= 60]  # Last minute
         recent_attacks = [r for r in recent_flows if current_time - r['timestamp'] <= 60 and r['final_prediction'] == 'Attack']
-        recent_normals = [r for r in recent_flows if current_time - r['timestamp'] <= 60 and r['final_prediction'] == 'Benign']
         
         # === MODIFIED: Changed from 5 to 6 columns to make space ===
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         # ===========================================================
         
         with col1:
-            st.metric("Total Flows", f"{total_flows:,}")
+            st.metric("📡 Raw Packets", f"{raw_packet_count:,}", help="Total raw packets sniffer by the kernel")
         
         with col2:
-            normal_delta = f"+{len(recent_normals)}" if recent_normals else "0"
-            st.metric("✅ Normal Packets", f"{normal_count:,}", 
-                     delta=normal_delta, delta_color="normal",
-                     help="Benign traffic - no threats detected")
+            st.metric("Active Flows", f"{total_flows:,}", help="Processed 5-tuple conversations")
         
         with col3:
             attack_delta = f"+{len(recent_attacks)}" if recent_attacks else "0"
-            st.metric("🚨 Attack Packets", f"{attack_count:,}", 
+            st.metric("🚨 Attack Flows", f"{attack_count:,}", 
                      delta=attack_delta, delta_color="inverse",
                      help="Malicious traffic detected by AI models")
         

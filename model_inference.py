@@ -97,11 +97,36 @@ class ModelInference:
             std_dev = np.std(self.baseline_errors)
             self.current_autoencoder_threshold = mean_val + (self.k_multiplier * std_dev)
             
-            # Safety floor
             if self.current_autoencoder_threshold < 10:
                 self.current_autoencoder_threshold = 10.0
                 
             print(f"✅ THRESHOLD UPDATED: {self.current_autoencoder_threshold:.4f} (μ={mean_val:.3f}, σ={std_dev:.3f})")
+            self.save_baseline()
+
+    def save_baseline(self):
+        """Saves the current calibration baseline to disk."""
+        try:
+            with open('baseline.pkl', 'wb') as f:
+                pickle.dump({
+                    'errors': list(self.baseline_errors),
+                    'threshold': self.current_autoencoder_threshold
+                }, f)
+        except Exception as e:
+            print(f"Failed to save baseline: {e}")
+
+    def load_baseline_from_disk(self) -> bool:
+        """Loads baseline from disk if available."""
+        if os.path.exists('baseline.pkl'):
+            try:
+                with open('baseline.pkl', 'rb') as f:
+                    data = pickle.load(f)
+                    self.baseline_errors.extend(data['errors'])
+                    self.current_autoencoder_threshold = data['threshold']
+                print("✅ Calibrated baseline loaded from disk.")
+                return True
+            except Exception as e:
+                print(f"Failed to load baseline: {e}")
+        return False
 
     def load_models(self) -> None:
         """Loads models and scalers from disk."""

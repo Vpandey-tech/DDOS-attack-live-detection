@@ -6,3 +6,15 @@ venv/
 .env
 dist/
 build/
+
+# Runtime & Logs
+*.log
+prevention_system.log
+blocked_ips.json
+baseline.pkl
+normal_traffic.pcap
+
+# Models (Optional - Remove these lines if you WANT to push models)
+# *.h5
+# *.pth
+# *.pkl
