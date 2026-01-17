@@ -12,6 +12,16 @@ import warnings
 import time
 from collections import deque
 from typing import List, Dict, Any, Optional, Union
+import logging
+
+try:
+    import xgboost as xgb
+except ImportError:
+    xgb = None
+    print("WARNING: XGBoost not installed.")
+
+import sklearn
+from sklearn.ensemble import RandomForestClassifier
 
 # Suppress Warnings for cleaner logs
 warnings.filterwarnings(action='ignore', category=UserWarning)
@@ -20,6 +30,8 @@ warnings.filterwarnings(action='ignore', category=FutureWarning)
 class ExpandDimsLayer(Layer):
     """Custom Keras layer required to load the lucid.h5 model."""
     def __init__(self, axis: int = -1, **kwargs):
+        # Remove dtype from kwargs if it exists (compatibility with different Keras versions)
+        kwargs.pop('dtype', None)
         super(ExpandDimsLayer, self).__init__(**kwargs)
         self.axis = axis
     
@@ -52,21 +64,24 @@ class Autoencoder(nn.Module):
 class ModelInference:
     """
     Handles inference for the hybrid DDoS detection system.
-    Combines LucidCNN (Classification) and AutoEncoder (Anomaly Detection).
+    Combines LucidCNN (Classification), AutoEncoder (Anomaly Detection),
+    XGBoost, and Random Forest in an Ensemble.
     """
     def __init__(self):
         self.lucid_model = None
         self.lucid_scaler = None
         self.autoencoder_model = None
         self.autoencoder_scaler = None
+        self.xgboost_model = None
+        self.random_forest_model = None
         
         # Detection Thresholds
-        self.LUCID_THRESHOLD = 0.1
+        self.LUCID_THRESHOLD = 0.5 
         
         # Adaptive Thresholding State
         self.baseline_errors: deque = deque(maxlen=1000)
-        self.current_autoencoder_threshold: float = 500.0  # Default safe margin
-        self.k_multiplier: float = 3.0  # Sensitivity factor (mean + 3*std)
+        self.current_autoencoder_threshold: float = 500.0
+        self.k_multiplier: float = 3.0
         
         # False Positive Mitigation
         self.attack_history: deque = deque(maxlen=5)
@@ -77,21 +92,39 @@ class ModelInference:
         self.load_models()
 
     def initialize_baseline(self, initial_errors: List[float]) -> None:
-        """
-        Initializes the dynamic threshold using errors collected during calibration.
-        """
+        """Initializes the dynamic threshold using errors collected during calibration."""
         if not initial_errors:
             print("⚠️ WARNING: Calibration data empty. Using default threshold.")
             return
-            
         self.baseline_errors.extend(initial_errors)
         self.recalculate_threshold()
 
+    def start_calibration(self):
+        """Reset baseline for new calibration"""
+        self.baseline_errors = deque(maxlen=2000)
+        self.current_autoencoder_threshold = 500.0 # Reset to safe default
+        print("DEBUG: Calibration started")
+
+    def finalize_calibration(self):
+        """Calculate new threshold from collected baseline errors"""
+        if not self.baseline_errors:
+            return 500.0
+            
+        errors = np.array(self.baseline_errors)
+        mean_err = np.mean(errors)
+        std_err = np.std(errors)
+        
+        # Set threshold to Mean + 3*STD (covers 99.7% of normal traffic)
+        new_threshold = mean_err + (3 * std_err)
+        # Ensure minimum safe floor
+        new_threshold = max(new_threshold, 0.05) 
+        
+        self.current_autoencoder_threshold = float(new_threshold)
+        print(f"DEBUG: Calibration Complete. New Threshold: {self.current_autoencoder_threshold:.4f}")
+        return self.current_autoencoder_threshold
+
     def recalculate_threshold(self) -> None:
-        """
-        Updates the anomaly detection threshold based on the statistical properties 
-        of recent benign traffic (mean + k * std_dev).
-        """
+        """Updates the anomaly detection threshold."""
         if len(self.baseline_errors) > 30:
             mean_val = np.mean(self.baseline_errors)
             std_dev = np.std(self.baseline_errors)
@@ -147,10 +180,36 @@ class ModelInference:
             self.autoencoder_model = Autoencoder(input_dim=input_dim)
             self.autoencoder_model.load_state_dict(torch.load('auto.pth', map_location='cpu'))
             self.autoencoder_model.eval()
+
+            # Load Ensemble Models
+            print("Loading Ensemble Models (XGBoost & Random Forest)...")
+            try:
+                if os.path.exists('xgboost_ddos.pkl'):
+                    with open('xgboost_ddos.pkl', 'rb') as f:
+                        self.xgboost_model = pickle.load(f)
+                    print("✅ XGBoost loaded.")
+                else:
+                    print("⚠️ XGBoost model file not found.")
+            except Exception as e:
+                print(f"⚠️ Failed to load XGBoost: {e}")
+
+            try:
+                if os.path.exists('random_forest_ddos.pkl'):
+                    with open('random_forest_ddos.pkl', 'rb') as f:
+                        self.random_forest_model = pickle.load(f)
+                    print("✅ Random Forest loaded.")
+                else:
+                    print("⚠️ Random Forest model file not found.")
+            except Exception as e:
+                print(f"⚠️ Failed to load Random Forest: {e}")
+            
             print("✅ All models loaded successfully.")
+            self.load_baseline_from_disk()
             
         except Exception as e:
             print(f"❌ CRITICAL ERROR loading models: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
     def _is_heavy_usage_flow(self, features: List[float]) -> bool:
@@ -163,22 +222,39 @@ class ModelInference:
             if packet_rate < 1000:
                 return True
         return False
-
-    def predict(self, features: List[float]) -> Dict[str, Any]:
+    
+    def _get_subset_features(self, features_np, model):
         """
-        Analyzes flow features to detect attacks.
-        Returns a dictionary with prediction details and threat assessment.
+        Extracts the correct feature subset for a model if it expects fewer features.
+        Attempts to use feature names if available, otherwise assumes first N.
+        """
+        n_expected = 72
+        if hasattr(model, 'n_features_in_'):
+            n_expected = model.n_features_in_
+        
+        if features_np.shape[1] == n_expected:
+            return features_np
+            
+        # Mismatch handling
+        if n_expected < features_np.shape[1]:
+            # Try to infer names (TODO: Implement feature name matching)
+            # For now, take first n_expected
+            return features_np[:, :n_expected]
+        else:
+            # Pad with zeros (rare)
+            padded = np.zeros((features_np.shape[0], n_expected))
+            padded[:, :features_np.shape[1]] = features_np
+            return padded
+
+    def autoencoder_predict(self, features: List[float]) -> tuple[bool, float]:
+        """
+        Runs only the AutoEncoder for calibration or lightweight monitoring.
+        Returns (is_anomaly, reconstruction_error).
         """
         try:
             features_np = np.array(features).reshape(1, -1)
             features_np = np.nan_to_num(features_np, nan=0.0, posinf=0.0, neginf=0.0)
-
-            # 1. LucidCNN Classification
-            lucid_features = self.lucid_scaler.transform(features_np)
-            lucid_confidence = float(self.lucid_model.predict(lucid_features, verbose=0)[0][0])
-            lucid_class = "Attack" if lucid_confidence > self.LUCID_THRESHOLD else "Benign"
             
-            # 2. AutoEncoder Anomaly Detection
             auto_features = self.autoencoder_scaler.transform(features_np)
             auto_input = torch.FloatTensor(auto_features)
             
@@ -187,47 +263,140 @@ class ModelInference:
                 error = float(torch.mean((auto_input - reconstructed) ** 2).item())
             
             is_anomaly = error > self.current_autoencoder_threshold
+            return is_anomaly, error
             
-            # 3. Hybrid Logic
+        except Exception as e:
+            print(f"AutoEncoder Error: {e}")
+            return False, 0.0
+
+    def predict(self, features: List[float]) -> Dict[str, Any]:
+        """
+        Analyzes flow features using Enlightened Ensemble (Lucid + XGB + RF + AutoEncoder).
+        Returns a dictionary with prediction details.
+        """
+        try:
+            features_np = np.array(features).reshape(1, -1)
+            features_np = np.nan_to_num(features_np, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # 1. LucidCNN Classification
+            lucid_features = self.lucid_scaler.transform(features_np)
+            lucid_confidence = float(self.lucid_model.predict(lucid_features, verbose=0)[0][0])
+            lucid_vote = 1 if lucid_confidence > 0.5 else 0
+            
+            # 2. XGBoost Prediction
+            xgb_vote = 0
+            xgb_conf = 0.0
+            if self.xgboost_model:
+                try:
+                    xgb_input = self._get_subset_features(features_np, self.xgboost_model)
+                    if hasattr(self.xgboost_model, "predict_proba"):
+                        xgb_conf = float(self.xgboost_model.predict_proba(xgb_input)[0][1])
+                        xgb_vote = 1 if xgb_conf > 0.5 else 0
+                    else:
+                        xgb_vote = int(self.xgboost_model.predict(xgb_input)[0])
+                        xgb_conf = float(xgb_vote)
+                except Exception as e:
+                    print(f"XGB Error: {e}")
+
+            # 3. Random Forest Prediction
+            rf_vote = 0
+            rf_conf = 0.0
+            if self.random_forest_model:
+                try:
+                    rf_input = self._get_subset_features(features_np, self.random_forest_model)
+                    if hasattr(self.random_forest_model, "predict_proba"):
+                        rf_conf = float(self.random_forest_model.predict_proba(rf_input)[0][1])
+                        rf_vote = 1 if rf_conf > 0.5 else 0
+                    else:
+                        rf_vote = int(self.random_forest_model.predict(rf_input)[0])
+                        rf_conf = float(rf_vote)
+                except Exception as e:
+                    print(f"RF Error: {e}")
+
+            # 4. AutoEncoder Anomaly Detection
+            auto_features = self.autoencoder_scaler.transform(features_np)
+            auto_input = torch.FloatTensor(auto_features)
+            with torch.no_grad():
+                reconstructed = self.autoencoder_model(auto_input)
+                error = float(torch.mean((auto_input - reconstructed) ** 2).item())
+            is_anomaly = error > self.current_autoencoder_threshold
+
+            # === ENSEMBLE LOGIC ===
+            # Weights: Lucid (Deep Learning) gets highest trust, followed by tree models
+            w_lucid, w_xgb, w_rf = 0.5, 0.25, 0.25
+            active_weights = w_lucid
+            
+            if self.xgboost_model: active_weights += w_xgb
+            if self.random_forest_model: active_weights += w_rf
+            
+            # Normalize weights dynamically based on loaded models
+            w_lucid /= active_weights
+            if self.xgboost_model: w_xgb /= active_weights
+            else: w_xgb = 0
+            if self.random_forest_model: w_rf /= active_weights
+            else: w_rf = 0
+
+            # Calculate Weighted Ensemble Score (0.0 to 1.0)
+            ensemble_score = (lucid_confidence * w_lucid) + (xgb_conf * w_xgb) + (rf_conf * w_rf)
+            
+            # 5. Hybrid Decision Matrix
             is_heavy = self._is_heavy_usage_flow(features)
-            both_agree = (lucid_class == "Attack") and is_anomaly
-            current_time = time.time()
-            
-            # Track history for temporal analysis
-            self.attack_history.append({
-                'time': current_time,
-                'is_attack': both_agree and not is_heavy,
-            })
-            
-            recent_attacks = sum(1 for h in self.attack_history 
-                               if current_time - h['time'] < 10 and h['is_attack'])
-            
             final_pred = "Benign"
             threat_level = "LOW"
             
-            if recent_attacks >= self.MIN_CONSECUTIVE_ATTACKS:
-                if current_time - self.last_alert_time > self.ALERT_COOLDOWN:
-                    final_pred = "Attack"
-                    threat_level = "HIGH"
-                    self.last_alert_time = current_time
-                else:
-                    final_pred = "Attack (Cooldown)"
-                    threat_level = "MEDIUM"
-            elif both_agree and not is_heavy:
-                threat_level = "MEDIUM"
-            elif is_heavy:
+            # Decision Tree for Threat Level
+            if is_heavy:
                 final_pred = "Heavy Usage"
                 threat_level = "LOW"
+            else:
+                # CASE 1: High Confidence Attack (Double Confirmation)
+                # Both Ensemble and AutoEncoder agree
+                if ensemble_score > 0.6 and is_anomaly:
+                    final_pred = "Attack"
+                    threat_level = "HIGH"
+                
+                # CASE 2: Strong Ensemble Detection (Known Attack Signature)
+                # Even if AutoEncoder misses it (maybe low volume), if classifiers are sure, trust them.
+                elif ensemble_score > 0.85:
+                    final_pred = "Attack"
+                    threat_level = "HIGH"
+                    
+                # CASE 3: Potential Anomaly (Zero-Day or Subtle Attack)
+                # AutoEncoder sees anomaly, but classifiers are unsure.
+                # OR Classifiers are somewhat suspicious (0.5-0.6) but not certain.
+                elif is_anomaly or (ensemble_score > 0.5):
+                     final_pred = "Potential Threat"
+                     threat_level = "MEDIUM"
 
-            # 4. Continuous Learning (Update baseline if benign)
-            if threat_level == 'LOW':
+            # 6. Temporal Escalation (Make System "Smarter")
+            # If we see a burst of "Medium" threats, escalate them to "High"
+            # because isolated anomalies might be noise, but a group is an attack.
+            current_time = time.time()
+            if final_pred != "Benign" and final_pred != "Heavy Usage":
+                self.attack_history.append({'time': current_time, 'level': threat_level})
+            
+            # Count recent threats in last 5 seconds
+            recent_highs = sum(1 for h in self.attack_history if current_time - h['time'] < 5 and h['level'] == 'HIGH')
+            recent_mediums = sum(1 for h in self.attack_history if current_time - h['time'] < 5 and h['level'] == 'MEDIUM')
+            
+            # Intelegent Escalation: 5+ Mediums become a High
+            if threat_level == "MEDIUM" and recent_mediums >= 5:
+                threat_level = "HIGH"
+                final_pred = "Attack (Escalated)"
+
+            # 7. Continuous Learning (Update baseline ONLY if comfortably Benign)
+            if threat_level == 'LOW' and ensemble_score < 0.2:
                 self.baseline_errors.append(error)
                 if len(self.baseline_errors) % 100 == 0:
                     self.recalculate_threshold()
 
+            # Fix: Ensure recent_attacks is defined for return (Count all recent non-benign events)
+            recent_attacks = recent_highs + recent_mediums
+
             return {
-                'lucid_prediction': lucid_class,
+                'lucid_prediction': "Attack" if lucid_confidence > 0.5 else "Benign",
                 'lucid_confidence': lucid_confidence,
+                'ensemble_score': ensemble_score,
                 'autoencoder_anomaly': is_anomaly,
                 'reconstruction_error': error,
                 'final_prediction': final_pred,
@@ -239,6 +408,8 @@ class ModelInference:
             
         except Exception as e:
             print(f"Inference Error: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'lucid_prediction': "Error", 'lucid_confidence': 0.0,
                 'autoencoder_anomaly': False, 'reconstruction_error': 0.0,

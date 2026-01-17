@@ -175,12 +175,12 @@ class PreventionSystem:
             # 3. Verify
             verify_cmd = ["netsh", "advfirewall", "firewall", "show", "rule", f"name={rule_name}"]
             if self._run_command_safe(verify_cmd, retries=0):
-                logger.info(f"✅ SUCCESS: Blocked IP {ip_address} via Windows Firewall.")
+                logger.info(f"[SUCCESS] Blocked IP {ip_address} via Windows Firewall.")
                 success = True
             else:
-                logger.error(f"❌ VERIFICATION FAILED: Rule for {ip_address} seemed to apply but cannot be found.")
+                logger.error(f"[VERIFY FAILED] Rule for {ip_address} seemed to apply but cannot be found.")
         else:
-            logger.error(f"❌ FAILURE: Could not apply firewall rule for {ip_address} after retries.")
+            logger.error(f"[FAILURE] Could not apply firewall rule for {ip_address} after retries.")
 
         # 4. Update State ensure consistency
         if not success:
@@ -193,7 +193,7 @@ class PreventionSystem:
         Initiates blocking of an IP address. Returns True if accepted for processing.
         """
         if self.is_safe_ip(ip_address):
-            logger.warning(f"🛡️ SAFETY: Block blocked for safe IP {ip_address}")
+            logger.warning(f"[SAFETY] Block blocked for safe IP {ip_address}")
             return False
 
         with self._lock:
@@ -206,7 +206,7 @@ class PreventionSystem:
         rule_name = f"{self.rule_name_prefix}{ip_address}"
         
         if self.simulation_mode:
-            logger.info(f"[SIMULATION] 🚫 Would block IP: {ip_address} | Reason: {reason}")
+            logger.info(f"[SIMULATION] [BLOCK] Would block IP: {ip_address} | Reason: {reason}")
             return True
 
         # Run firewall operation in a separate thread to avoid blocking the main flow
@@ -227,16 +227,16 @@ class PreventionSystem:
         rule_name = f"{self.rule_name_prefix}{ip_address}"
 
         if self.simulation_mode:
-            logger.info(f"[SIMULATION] 🔓 Would unblock IP: {ip_address}")
+            logger.info(f"[SIMULATION] [UNBLOCK] Would unblock IP: {ip_address}")
             return True
 
         # Async unblock
         def _task():
             cmd = ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule_name}"]
             if self._run_command_safe(cmd):
-                logger.info(f"✅ UNBLOCKED: Removed rule for {ip_address}")
+                logger.info(f"[SUCCESS] UNBLOCKED: Removed rule for {ip_address}")
             else:
-                logger.warning(f"⚠️ Unblock warning: Could not delete rule for {ip_address} (might barely exist)")
+                logger.warning(f"[WARNING] Unblock warning: Could not delete rule for {ip_address} (might barely exist)")
 
         t = threading.Thread(target=_task, name=f"Unblocker-{ip_address}")
         t.daemon = True
@@ -249,7 +249,7 @@ class PreventionSystem:
 
     def clear_all_blocks(self):
         """Removes all rules created by this session."""
-        logger.info("🧹 Cleaning up all active blocks...")
+        logger.info("[CLEANUP] Cleaning up all active blocks...")
         with self._lock:
             ips_to_remove = list(self.blocked_ips)
             self.blocked_ips.clear()

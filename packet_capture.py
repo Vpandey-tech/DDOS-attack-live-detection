@@ -156,10 +156,10 @@ class PacketCapture:
                 self.logger.warning(f"Raw socket check failed: {e}. Falling back to Scapy.")
 
         if self.use_raw_socket:
-            self.logger.info(f"🚀 PERFORMANCE MODE: Starting Raw Socket Sniffer on {self.interface}")
+            self.logger.info(f"PERFORMANCE MODE: Starting Raw Socket Sniffer on {self.interface}")
             self.capture_thread = threading.Thread(target=self._run_raw_socket_sniffer, daemon=True)
         else:
-            self.logger.info(f"🛡️ STANDARD MODE: Starting Scapy Sniffer on {self.interface}")
+            self.logger.info(f"STANDARD MODE: Starting Scapy Sniffer on {self.interface}")
             self.capture_thread = threading.Thread(target=self._run_scapy_sniffer, daemon=True)
             
         self.capture_thread.start()
@@ -184,46 +184,50 @@ class PacketCapture:
             RECV_BUFFER_SIZE = 65535
             
             while self.running:
-                # Receive packet
-                raw_buffer = sniffer.recvfrom(RECV_BUFFER_SIZE)[0]
-                
-                # Manual parsing for speed (IP Header is first 20 bytes usually)
-                # IHL is in the first byte (lower 4 bits) * 4
-                version_ihl = raw_buffer[0]
-                ihl = (version_ihl & 0xF) * 4
-                
-                protocol = raw_buffer[9]
-                
-                # Filter useful protocols early: 6=TCP, 17=UDP
-                if protocol not in (6, 17):
-                    continue
-                
-                # Source and Dest IP are at offset 12 and 16
-                s_addr = socket.inet_ntoa(raw_buffer[12:16])
-                d_addr = socket.inet_ntoa(raw_buffer[16:20])
-                total_len = len(raw_buffer)
-                
-                src_port = 0
-                dst_port = 0
-                
-                # Parse Transport Layer
-                if protocol == 6: # TCP
-                    # TCP Header starts after IHL
-                    tcp_header = raw_buffer[ihl:ihl+20]
-                    # Source Port (2 bytes), Dest Port (2 bytes)
-                    # !HH means Big Endian, Unsigned Short, Unsigned Short
-                    ports = struct.unpack('!HH', tcp_header[0:4])
-                    src_port = ports[0]
-                    dst_port = ports[1]
+                try:
+                    # Receive packet
+                    raw_buffer = sniffer.recvfrom(RECV_BUFFER_SIZE)[0]
                     
-                elif protocol == 17: # UDP
-                    udp_header = raw_buffer[ihl:ihl+8]
-                    ports = struct.unpack('!HH', udp_header[0:4])
-                    src_port = ports[0]
-                    dst_port = ports[1]
+                    # Manual parsing for speed (IP Header is first 20 bytes usually)
+                    # IHL is in the first byte (lower 4 bits) * 4
+                    version_ihl = raw_buffer[0]
+                    ihl = (version_ihl & 0xF) * 4
                     
-                self._submit_packet(s_addr, d_addr, protocol, total_len, src_port, dst_port)
-                
+                    protocol = raw_buffer[9]
+                    
+                    # Filter useful protocols early: 6=TCP, 17=UDP
+                    if protocol not in (6, 17):
+                        continue
+                    
+                    # Source and Dest IP are at offset 12 and 16
+                    s_addr = socket.inet_ntoa(raw_buffer[12:16])
+                    d_addr = socket.inet_ntoa(raw_buffer[16:20])
+                    total_len = len(raw_buffer)
+                    
+                    src_port = 0
+                    dst_port = 0
+                    
+                    # Parse Transport Layer
+                    try:
+                        if protocol == 6: # TCP
+                            # TCP Header starts after IHL
+                            tcp_header = raw_buffer[ihl:ihl+20]
+                            ports = struct.unpack('!HH', tcp_header[0:4])
+                            src_port = ports[0]
+                            dst_port = ports[1]
+                            
+                        elif protocol == 17: # UDP
+                            udp_header = raw_buffer[ihl:ihl+8]
+                            ports = struct.unpack('!HH', udp_header[0:4])
+                            src_port = ports[0]
+                            dst_port = ports[1]
+                            
+                        self._submit_packet(s_addr, d_addr, protocol, total_len, src_port, dst_port)
+                    except struct.error:
+                        continue # Skip malformed packets
+                except OSError:
+                    continue # Socket read errors
+
         except Exception as e:
             self.logger.error(f"Raw Socket Sniffer critical error: {e}")
         finally:
@@ -238,18 +242,28 @@ class PacketCapture:
     def _run_scapy_sniffer(self):
         """Standard Scapy sniffer (Fallback)."""
         try:
+            # Try sniffing with default settings first
             scapy.sniff(
                 iface=self.interface,
                 prn=self.packet_handler,
                 stop_filter=lambda x: not self.running,
                 store=False,
             )
-        except (PermissionError, OSError) as e:
-            self.logger.error(f"Capture failed on '{self.interface}'. Try running with sudo/admin privileges. Error: {e}")
-            self.running = False
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred during packet capture: {e}")
-            self.running = False
+            self.logger.warning(f"Standard sniff failed ({e}). Trying Layer 3 socket...")
+            try:
+                # Fallback to Layer 3 sniffing (works better without Npcap on some Win configs)
+                from scapy.arch.windows import conf
+                conf.use_pcap = False # Disable winpcap dependency
+                
+                s = conf.L3socket(iface=self.interface)
+                while self.running:
+                    p = s.recv(MTU=1500)
+                    if p:
+                        self.packet_handler(p)
+            except Exception as e2:
+                self.logger.error(f"FATAL: All capture methods failed. Install Npcap! Error: {e2}")
+                self.running = False
 
     def stop_capture(self):
         """Stops the packet capture."""
@@ -258,5 +272,7 @@ class PacketCapture:
         
         self.running = False
         if self.capture_thread and self.capture_thread.is_alive():
-            self.capture_thread.join(timeout=2)
+            # Don't join() here to avoid UI freezing if thread is blocked on I/O
+            # Just set flag and let it exit naturally
+            pass
         self.logger.info(f"Stopping packet capture. Total packets captured: {self.packet_count}")

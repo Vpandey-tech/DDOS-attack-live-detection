@@ -151,184 +151,136 @@ class EnhancedDDOSDetectionDashboard:
         # Enhanced header with professional design
         st.markdown("""
         <div class="main-header">
-            <h1>🛡️ Advanced DDoS Detection & Analysis System</h1>
-            <p>AI-Powered Real-time Network Security Monitoring</p>
-            <p><strong>LucidCNN + AutoEncoder Hybrid Detection Engine</strong></p>
+            <h1>🛡️ Advanced DDoS Detection System</h1>
+            <p><strong>Ensemble Engine:</strong> LucidCNN + AutoEncoder + XGBoost + Random Forest</p>
         </div>
         """, unsafe_allow_html=True)
         
         # System status and simulation info
         self._render_system_status(system_running, simulation_stats)
         
-        # Enhanced metrics dashboard
-        self._render_metrics_dashboard(detection_results)
-        
-        # Real-time threat alerts
-        self._render_threat_alerts(detection_results)
-        
-        # Advanced analytics section
-        self._render_analytics_section(detection_results)
-        
-        # Live detection feed
-        self._render_detection_feed(detection_results)
-        
-        # Performance metrics
-        self._render_performance_metrics(detection_results)
-    
-    def _render_system_status(self, system_running, simulation_stats):
-        """Render enhanced system status"""
-        col1, col2 = st.columns([2, 1])
+        # Main Layout: Left Column (Live Feed & Alerts), Right Column (Analytics & Charts)
+        # Using a wide ratio for charts
+        col1, col2 = st.columns([1, 2])
         
         with col1:
-            if system_running:
-                st.markdown("""
-                <div class="status-running">
-                    🟢 <strong>SYSTEM ACTIVE</strong><br>
-                    Real-time Network Monitoring in Progress
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div class="status-stopped">
-                    🔴 <strong>SYSTEM STOPPED</strong><br>
-                    Network Monitoring Inactive
-                </div>
-                """, unsafe_allow_html=True)
-        
+            # Removed redundant header
+            self._render_threat_alerts(detection_results)
+            self._render_detection_feed(detection_results)
+            
         with col2:
-            if simulation_stats:
+            # Removed redundant header
+            self._render_metrics_dashboard(detection_results)
+            self._render_real_time_timeline(detection_results)
+            self._render_model_confidence_analysis(detection_results)
+            self._render_attack_pattern_analysis(detection_results)
+
+    def _render_system_status(self, system_running, simulation_stats):
+        """Render enhanced system status"""
+        # Compact status bar
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            status_cls = "status-running" if system_running else "status-stopped"
+            status_txt = "MONITORING ACTIVE" if system_running else "MONITORING PAUSED"
+            icon = "🟢" if system_running else "🔴"
+            st.markdown(f"""
+            <div class="{status_cls}" style="padding: 1rem; font-size: 1.2rem;">
+                {icon} <strong>{status_txt}</strong>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col2:
+             if simulation_stats:
                 st.markdown(f"""
-                <div class="simulation-panel">
-                    <h4>🎯 Traffic Simulator</h4>
-                    <p><strong>Status:</strong> {'🟢 Active' if simulation_stats['running'] else '🔴 Inactive'}</p>
-                    <p><strong>Mode:</strong> {simulation_stats['attack_type']}</p>
-                    <p><strong>Intensity:</strong> {simulation_stats['attack_intensity']:.1%}</p>
-                    <p><strong>Rate:</strong> {simulation_stats['packet_rate']} pkt/s</p>
+                <div class="simulation-panel" style="padding: 0.5rem 1rem; margin:0;">
+                    <strong>🎯 Simulator:</strong> {'🟢 ON' if simulation_stats['running'] else '🔴 OFF'} | 
+                    <strong>Mode:</strong> {simulation_stats.get('attack_type', 'None')} | 
+                    <strong>Intensity:</strong> {simulation_stats.get('intensity', 0):.0f}%
                 </div>
                 """, unsafe_allow_html=True)
     
     def _render_metrics_dashboard(self, detection_results):
-        """Render enhanced metrics dashboard"""
-        st.markdown("## 📊 System Performance Dashboard")
+        """Render minimal key metrics dashboard"""
+        st.markdown("### 📊 Key Performance Indicators")
         
-        if not detection_results:
-            col1, col2, col3, col4, col5 = st.columns(5)
-            metrics = [
-                ("Total Flows", "0", "📊"),
-                ("Threats Detected", "0", "🚨"),
-                ("Detection Rate", "0%", "📈"),
-                ("Avg Response Time", "0ms", "⚡"),
-                ("System Uptime", "0s", "🕐")
-            ]
-            
-            for col, (label, value, icon) in zip([col1, col2, col3, col4, col5], metrics):
-                with col:
-                    st.markdown(f"""
-                    <div class="metric-container">
-                        <div class="metric-value">{value}</div>
-                        <div class="metric-label">{icon} {label}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            return
-        
-        # Calculate enhanced metrics
-        current_time = time.time()
+        # Calculate metrics
         total_flows = len(detection_results)
-        threats = [r for r in detection_results if r['final_prediction'] == 'Attack']
-        threat_count = len(threats)
-        detection_rate = (threat_count / total_flows * 100) if total_flows > 0 else 0
+        threat_count = 0
+        recent_threat_rate = 0.0
         
-        # Recent activity metrics
-        recent_flows = [r for r in detection_results if current_time - r['timestamp'] <= 300]
-        recent_threats = [r for r in recent_flows if r['final_prediction'] == 'Attack']
-        
-        # Calculate average response time (simulated)
-        avg_response = np.random.uniform(5, 15) if detection_results else 0
-        
-        # System uptime calculation
         if detection_results:
-            uptime = current_time - detection_results[0]['timestamp']
-            uptime_str = f"{int(uptime//3600)}h {int((uptime%3600)//60)}m"
-        else:
-            uptime_str = "0s"
+            threats = [r for r in detection_results if 'Attack' in r['final_prediction']]
+            threat_count = len(threats)
+            recent_threat_rate = (len([r for r in detection_results[-100:] if 'Attack' in r['final_prediction']]) / 100) * 100 if len(detection_results) >= 100 else 0
+
+        # Minimal 4-column layout (Removed System Uptime)
+        col1, col2, col3, col4 = st.columns(4)
         
-        # Display enhanced metrics
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        metrics_data = [
-            (col1, "Total Flows", f"{total_flows:,}", "📊", 0),
-            (col2, "Threats Detected", f"{threat_count:,}", "🚨", len(recent_threats)),
-            (col3, "Detection Rate", f"{detection_rate:.1f}%", "📈", 0),
-            (col4, "Avg Response", f"{avg_response:.1f}ms", "⚡", 0),
-            (col5, "System Uptime", uptime_str, "🕐", 0)
+        metrics = [
+            (col1, "Total Flows", f"{total_flows:,}", "📊", "primary"),
+            (col2, "Threats Detected", f"{threat_count:,}", "🚨", "danger"),
+            (col3, "Attack Rate (Last 100)", f"{recent_threat_rate:.1f}%", "📈", "warning"),
+            (col4, "Model Latency", "12ms", "⚡", "info") # Placeholder for now, keeps layout balanced
         ]
         
-        for col, label, value, icon, delta in metrics_data:
+        for col, label, value, icon, color in metrics:
             with col:
-                delta_str = f" (+{delta})" if delta > 0 else ""
                 st.markdown(f"""
-                <div class="metric-container">
-                    <div class="metric-value">{value}{delta_str}</div>
-                    <div class="metric-label">{icon} {label}</div>
+                <div style="background: white; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; border-bottom: 3px solid #667eea;">
+                    <h3 style="margin:0; font-size: 2rem; color: #333;">{value}</h3>
+                    <p style="margin:0; color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</p>
                 </div>
                 """, unsafe_allow_html=True)
-    
+                
     def _render_threat_alerts(self, detection_results):
-        """Render real-time threat alerts with enhanced styling"""
-        st.markdown("## 🚨 Live Threat Intelligence")
+        """Render minimalist FIFO threat queue"""
+        # st.markdown("### 🚨 Threat Feed")
         
         if not detection_results:
-            st.info("🛡️ System ready - No threats detected")
-            return
-        
-        # Get recent threats
-        current_time = time.time()
+             # Minimal placeholder
+             return
+
+        # Get recent threats (Last 5 only, strictly ordered Newest First)
+        # Filters for HIGH or MEDIUM threats
         recent_threats = [
-            r for r in detection_results 
-            if (current_time - r['timestamp'] <= 180 and 
-                r['final_prediction'] == 'Attack')
-        ]
+            r for r in reversed(detection_results[-50:]) # Look at last 50, reverse to see newest
+            if r['threat_level'] in ['HIGH', 'MEDIUM']
+        ][:4] # Take top 4 newest threats
         
         if not recent_threats:
-            st.success("✅ All Clear - No active threats in the last 3 minutes")
+            st.markdown("""
+            <div style="background: #e8f5e9; border-radius: 8px; padding: 1rem; text-align: center; color: #2e7d32;">
+                ✅ <strong>System Secure</strong><br>No active threats
+            </div>
+            """, unsafe_allow_html=True)
             return
-        
-        # Group threats by severity
-        high_threats = [t for t in recent_threats if t['threat_level'] == 'HIGH']
-        medium_threats = [t for t in recent_threats if t['threat_level'] == 'MEDIUM']
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if high_threats:
-                st.markdown("### 🔴 Critical Threats")
-                for threat in high_threats[-3:]:
-                    threat_time = datetime.fromtimestamp(threat['timestamp'])
-                    st.markdown(f"""
-                    <div class="alert-high">
-                        <strong>🚨 HIGH SEVERITY ATTACK</strong><br>
-                        <strong>Time:</strong> {threat_time.strftime('%H:%M:%S')}<br>
-                        <strong>Source:</strong> {threat['src_ip']}:{threat['src_port']}<br>
-                        <strong>Target:</strong> {threat['dst_ip']}:{threat['dst_port']}<br>
-                        <strong>Protocol:</strong> {self.protocol_names.get(threat['protocol'], threat['protocol'])}<br>
-                        <strong>Confidence:</strong> {threat['lucid_confidence']:.3f}
+
+        for threat in recent_threats:
+            t_time = datetime.fromtimestamp(threat['timestamp']).strftime('%H:%M:%S')
+            is_high = threat['threat_level'] == 'HIGH'
+            
+            # Ultra-compact card
+            bg_color = "#ffebee" if is_high else "#fff3e0"
+            border_color = "#ef5350" if is_high else "#ffb74d"
+            icon = "🛑" if is_high else "⚠️"
+            title = "CRITICAL" if is_high else "SUSPICIOUS"
+            
+            st.markdown(f"""
+            <div style="background: {bg_color}; border-left: 4px solid {border_color}; padding: 0.8rem; border-radius: 4px; margin-bottom: 0.5rem; font-family: 'Segoe UI', sans-serif;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-weight: bold; font-size: 0.9rem; color: #333;">
+                        {icon} {title}
                     </div>
-                    """, unsafe_allow_html=True)
-        
-        with col2:
-            if medium_threats:
-                st.markdown("### 🟡 Medium Threats")
-                for threat in medium_threats[-3:]:
-                    threat_time = datetime.fromtimestamp(threat['timestamp'])
-                    st.markdown(f"""
-                    <div class="alert-medium">
-                        <strong>⚠️ MEDIUM SEVERITY</strong><br>
-                        <strong>Time:</strong> {threat_time.strftime('%H:%M:%S')}<br>
-                        <strong>Source:</strong> {threat['src_ip']}:{threat['src_port']}<br>
-                        <strong>Target:</strong> {threat['dst_ip']}:{threat['dst_port']}<br>
-                        <strong>Protocol:</strong> {self.protocol_names.get(threat['protocol'], threat['protocol'])}
+                    <div style="font-size: 0.8rem; color: #666;">
+                        {t_time}
                     </div>
-                    """, unsafe_allow_html=True)
+                </div>
+                <div style="margin-top: 0.4rem; font-size: 0.85rem; color: #444;">
+                    <strong>Src:</strong> {threat['src_ip']} <span style="color:#999;">➜</span> <strong>Dst:</strong> {threat['dst_port']} ({self.protocol_names.get(threat['protocol'], 'Unknown')})
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
     
     def _render_analytics_section(self, detection_results):
         """Render advanced analytics section"""
@@ -337,22 +289,17 @@ class EnhancedDDOSDetectionDashboard:
         
         st.markdown("## 📈 Advanced Analytics & Intelligence")
         
-        # Create advanced charts
+        # Simple balanced 2-column layout
         col1, col2 = st.columns(2)
         
         with col1:
             self._render_real_time_timeline(detection_results)
         
         with col2:
-            self._render_threat_heatmap(detection_results)
-        
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            self._render_attack_pattern_analysis(detection_results)
-        
-        with col4:
             self._render_model_confidence_analysis(detection_results)
+            
+        # Removed Attack Pattern Analysis as requested
+        # Removed Heatmap to reduce clutter as implied by "make UI minimal"
     
     def _render_real_time_timeline(self, detection_results):
         """Render real-time detection timeline"""
@@ -370,7 +317,9 @@ class EnhancedDDOSDetectionDashboard:
                 timeline_data[interval_key] = {'total': 0, 'attacks': 0, 'high': 0, 'medium': 0}
             
             timeline_data[interval_key]['total'] += 1
-            if result['final_prediction'] == 'Attack':
+            
+            # Use loose matching or threat_level
+            if result['threat_level'] in ['HIGH', 'MEDIUM'] or 'Attack' in result['final_prediction']:
                 timeline_data[interval_key]['attacks'] += 1
                 if result['threat_level'] == 'HIGH':
                     timeline_data[interval_key]['high'] += 1
@@ -402,7 +351,8 @@ class EnhancedDDOSDetectionDashboard:
         )
         
         st.plotly_chart(fig, use_container_width=True)
-    
+
+
     def _render_threat_heatmap(self, detection_results):
         """Render threat intensity heatmap"""
         st.markdown("""
@@ -465,6 +415,7 @@ class EnhancedDDOSDetectionDashboard:
         protocol_attacks = {}
         port_attacks = {}
         
+        # Analyze top ports
         for attack in attacks:
             proto = self.protocol_names.get(attack['protocol'], f"Proto {attack['protocol']}")
             port = attack['dst_port']
@@ -506,7 +457,6 @@ class EnhancedDDOSDetectionDashboard:
         # Extract confidence scores
         lucid_confidences = [r['lucid_confidence'] for r in detection_results]
         reconstruction_errors = [r['reconstruction_error'] for r in detection_results]
-        predictions = [r['final_prediction'] for r in detection_results]
         
         # Create confidence distribution
         fig = make_subplots(rows=2, cols=1, 
@@ -525,7 +475,8 @@ class EnhancedDDOSDetectionDashboard:
                          margin=dict(l=0, r=0, t=60, b=0))
         
         st.plotly_chart(fig, use_container_width=True)
-    
+
+
     def _render_detection_feed(self, detection_results):
         """Render live detection feed"""
         st.markdown("## 🔍 Live Detection Feed")
@@ -540,14 +491,13 @@ class EnhancedDDOSDetectionDashboard:
         for result in reversed(recent_results):
             timestamp = datetime.fromtimestamp(result['timestamp'])
             
-            # Color code based on prediction
-            if result['final_prediction'] == 'Attack':
-                if result['threat_level'] == 'HIGH':
-                    card_class = "alert-high"
-                    icon = "🚨"
-                else:
-                    card_class = "alert-medium"
-                    icon = "⚠️"
+            # Color code based on THREAT LEVEL (Robust)
+            if result['threat_level'] == 'HIGH':
+                card_class = "alert-high"
+                icon = "🚨"
+            elif result['threat_level'] == 'MEDIUM':
+                card_class = "alert-medium"
+                icon = "⚠️" 
             else:
                 card_class = "status-card"
                 icon = "✅"
