@@ -49,7 +49,7 @@ The system operates on a high-concurrency **Producer-Consumer** architecture:
 ### Installation
 1.  **Clone the Repository**:
     ```bash
-    git clone https://github.com/your-repo/ddos-sentinel.git
+    git clone https://github.com/Vpandey-tech/DDOS-attack-live-detection.git
     cd ddos-sentinel
     ```
 
