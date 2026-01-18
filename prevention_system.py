@@ -161,21 +161,32 @@ class PreventionSystem:
         success = False
         
         # 1. Define Command
-        cmd = [
-            "netsh", "advfirewall", "firewall", "add", "rule",
-            f"name={rule_name}",
-            "dir=in",
-            "action=block",
-            f"remoteip={ip_address}",
-            "enable=yes"
-        ]
+        if os.name == 'nt':
+            # Windows: netsh command
+            cmd = [
+                "netsh", "advfirewall", "firewall", "add", "rule",
+                f"name={rule_name}",
+                "dir=in",
+                "action=block",
+                f"remoteip={ip_address}",
+                "enable=yes"
+            ]
+        else:
+            # Linux: iptables command (Universal Linux Firewall)
+            # -I INPUT 1: Insert at top of chain to ensure it takes precedence
+            cmd = ["iptables", "-I", "INPUT", "1", "-s", ip_address, "-j", "DROP"]
         
         # 2. Execute
         if self._run_command_safe(cmd):
             # 3. Verify
-            verify_cmd = ["netsh", "advfirewall", "firewall", "show", "rule", f"name={rule_name}"]
+            if os.name == 'nt':
+                verify_cmd = ["netsh", "advfirewall", "firewall", "show", "rule", f"name={rule_name}"]
+            else:
+                # verify iptables rule exists (-C check)
+                verify_cmd = ["iptables", "-C", "INPUT", "-s", ip_address, "-j", "DROP"]
+
             if self._run_command_safe(verify_cmd, retries=0):
-                logger.info(f"[SUCCESS] Blocked IP {ip_address} via Windows Firewall.")
+                logger.info(f"[SUCCESS] Blocked IP {ip_address} via System Firewall ({'Windows' if os.name=='nt' else 'Linux'}).")
                 success = True
             else:
                 logger.error(f"[VERIFY FAILED] Rule for {ip_address} seemed to apply but cannot be found.")
@@ -232,7 +243,12 @@ class PreventionSystem:
 
         # Async unblock
         def _task():
-            cmd = ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule_name}"]
+            if os.name == 'nt':
+                cmd = ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule_name}"]
+            else:
+                # Linux: Delete rule (-D)
+                cmd = ["iptables", "-D", "INPUT", "-s", ip_address, "-j", "DROP"]
+                
             if self._run_command_safe(cmd):
                 logger.info(f"[SUCCESS] UNBLOCKED: Removed rule for {ip_address}")
             else:
@@ -260,10 +276,13 @@ class PreventionSystem:
             # Since we cleared the set, unblock_ip checks would fail, so we bypass strict checks
             rule_name = f"{self.rule_name_prefix}{ip}"
             
-            def _cleanup_task(r_name):
-                 cmd = ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={r_name}"]
+            def _cleanup_task(r_name, ip_addr):
+                 if os.name == 'nt':
+                     cmd = ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={r_name}"]
+                 else:
+                     cmd = ["iptables", "-D", "INPUT", "-s", ip_addr, "-j", "DROP"]
                  subprocess.run(cmd, capture_output=True, check=False)
             
-            t = threading.Thread(target=_cleanup_task, args=(rule_name,))
+            t = threading.Thread(target=_cleanup_task, args=(rule_name, ip))
             t.daemon = True
             t.start()

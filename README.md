@@ -1,7 +1,18 @@
+---
+title: Advanced DDoS Defense
+emoji: 🛡️
+colorFrom: indigo
+colorTo: red
+sdk: docker
+app_port: 7860
+---
+
 # 🛡️ Sentinel: Advanced Hybrid AI DDoS Defense System
 > **Enterprise-Grade Real-Time Network Protection** | *Version 2.0 "Fortress"*
 
 ![License](https://img.shields.io/badge/License-MIT-blue.svg) ![Python](https://img.shields.io/badge/Python-3.9%2B-blue) ![Status](https://img.shields.io/badge/Status-Production%20Ready-green) ![AI](https://img.shields.io/badge/AI-Ensemble%20(CNN%2BAutoEncoder%2BXGB%2BRF)-purple)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanketDamre/DDOS-ATTACK-PREVENTION)
+
 
 ---
 
@@ -50,7 +61,7 @@ The system operates on a high-concurrency **Producer-Consumer** architecture:
 1.  **Clone the Repository**:
     ```bash
     git clone https://github.com/Vpandey-tech/DDOS-attack-live-detection.git
-    cd ddos-sentinel
+    cd curr_ddos
     ```
 
 2.  **Install Dependencies**:

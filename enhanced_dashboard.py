@@ -37,6 +37,14 @@ class EnhancedDDOSDetectionDashboard:
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
         }
         
+        .white-card {
+            color: #000000 !important;
+        }
+        
+        .white-card *, .white-card h1, .white-card h2, .white-card h3, .white-card h4, .white-card h5, .white-card p, .white-card span, .white-card div, .white-card label {
+            color: #000000 !important;
+        }
+
         .status-card {
             background: white;
             padding: 1.5rem;
@@ -44,6 +52,11 @@ class EnhancedDDOSDetectionDashboard:
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             margin: 1rem 0;
             border-left: 5px solid #667eea;
+            color: #000000 !important; 
+        }
+        
+        .status-card * {
+             color: #000000 !important; 
         }
         
         .metric-container {
@@ -52,11 +65,12 @@ class EnhancedDDOSDetectionDashboard:
             border-radius: 12px;
             box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
             margin: 0.5rem 0;
+            color: #000000 !important;
         }
         
         .alert-high {
             background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-            color: white;
+            color: white !important;
             padding: 1rem 1.5rem;
             border-radius: 10px;
             margin: 0.5rem 0;
@@ -66,7 +80,7 @@ class EnhancedDDOSDetectionDashboard:
         
         .alert-medium {
             background: linear-gradient(135deg, #ffa726, #ff9800);
-            color: white;
+            color: white !important;
             padding: 1rem 1.5rem;
             border-radius: 10px;
             margin: 0.5rem 0;
@@ -75,7 +89,7 @@ class EnhancedDDOSDetectionDashboard:
         
         .status-running {
             background: linear-gradient(135deg, #4CAF50, #45a049);
-            color: white;
+            color: white !important;
             padding: 1.5rem;
             border-radius: 12px;
             text-align: center;
@@ -86,7 +100,7 @@ class EnhancedDDOSDetectionDashboard:
         
         .status-stopped {
             background: linear-gradient(135deg, #f44336, #d32f2f);
-            color: white;
+            color: white !important;
             padding: 1.5rem;
             border-radius: 12px;
             text-align: center;
@@ -100,6 +114,7 @@ class EnhancedDDOSDetectionDashboard:
             border-radius: 12px;
             border: 2px solid #2196f3;
             margin: 1rem 0;
+            color: #0d47a1 !important; /* Force dark blue text */
         }
         
         @keyframes pulse {
@@ -117,12 +132,12 @@ class EnhancedDDOSDetectionDashboard:
         .metric-value {
             font-size: 2.5rem;
             font-weight: bold;
-            color: #667eea;
+            color: #667eea !important;
         }
         
         .metric-label {
             font-size: 1rem;
-            color: #6c757d;
+            color: #6c757d !important;
             font-weight: 500;
         }
         
@@ -132,6 +147,11 @@ class EnhancedDDOSDetectionDashboard:
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
             margin: 1rem 0;
+            color: #000000 !important;
+        }
+        
+        .chart-container * {
+             color: #000000 !important;
         }
         
         .feature-card {
@@ -141,6 +161,11 @@ class EnhancedDDOSDetectionDashboard:
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             border: 1px solid #e8eaed;
             margin: 1rem 0;
+            color: #000000 !important;
+        }
+        
+        .feature-card * {
+            color: #000000 !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -227,9 +252,9 @@ class EnhancedDDOSDetectionDashboard:
         for col, label, value, icon, color in metrics:
             with col:
                 st.markdown(f"""
-                <div style="background: white; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; border-bottom: 3px solid #667eea;">
-                    <h3 style="margin:0; font-size: 2rem; color: #333;">{value}</h3>
-                    <p style="margin:0; color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</p>
+                <div class="white-card" style="background: white; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; border-bottom: 3px solid #667eea;">
+                    <h3 style="margin:0; font-size: 2rem; color: #000000 !important;">{value}</h3>
+                    <p style="margin:0; color: #000000 !important; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -305,7 +330,7 @@ class EnhancedDDOSDetectionDashboard:
         """Render real-time detection timeline"""
         st.markdown("""
         <div class="chart-container">
-            <h4>⏱️ Real-time Detection Timeline</h4>
+            <h4 style="color: #1f2937 !important; margin: 0;">⏱️ Real-time Detection Timeline</h4>
         </div>
         """, unsafe_allow_html=True)
         
@@ -357,7 +382,7 @@ class EnhancedDDOSDetectionDashboard:
         """Render threat intensity heatmap"""
         st.markdown("""
         <div class="chart-container">
-            <h4>🌡️ Threat Intensity Heatmap</h4>
+            <h4 style="color: #1f2937 !important; margin: 0;">🌡️ Threat Intensity Heatmap</h4>
         </div>
         """, unsafe_allow_html=True)
         
@@ -401,7 +426,7 @@ class EnhancedDDOSDetectionDashboard:
         """Render attack pattern analysis"""
         st.markdown("""
         <div class="chart-container">
-            <h4>🎯 Attack Pattern Analysis</h4>
+            <h4 style="color: #1f2937 !important; margin: 0;">🎯 Attack Pattern Analysis</h4>
         </div>
         """, unsafe_allow_html=True)
         
@@ -447,7 +472,7 @@ class EnhancedDDOSDetectionDashboard:
         """Render model confidence analysis"""
         st.markdown("""
         <div class="chart-container">
-            <h4>🧠 AI Model Performance Analysis</h4>
+            <h4 style="color: #1f2937 !important; margin: 0;">🧠 AI Model Performance Analysis</h4>
         </div>
         """, unsafe_allow_html=True)
         

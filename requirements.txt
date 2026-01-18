@@ -1,0 +1,13 @@
+streamlit
+pandas
+numpy
+plotly
+scapy
+psutil
+tensorflow
+torch
+scikit-learn
+xgboost
+joblib
+requests
+Faker

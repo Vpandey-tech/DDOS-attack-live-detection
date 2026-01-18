@@ -155,6 +155,9 @@ def run_calibration(interface, timeout):
                     padding: 3rem; border-radius: 15px; text-align: center; margin: 2rem 0;">
             <h1 style="color: white; font-size: 3rem;">⚖️ CALIBRATING SYSTEM</h1>
             <h3 style="color: #e0e7ff;">Learning Network Baseline...</h3>
+             <p style="color: #fff; font-size: 1.2rem; margin-top: 1rem; background: rgba(255,255,255,0.2); padding: 10px; border-radius: 8px;">
+                ℹ️ <strong>Instruction:</strong> Please use your device in a normal way (browse web, watch video) for 1 minute to establish an accurate baseline.
+            </p>
         </div>
         """, unsafe_allow_html=True)
         

@@ -1,6 +1,8 @@
 # 🧠 Sentinel: Detailed Technical Documentation
 > **Deep Dive into Architecture, Algorithms, and Logic**
 
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanketDamre/DDOS-ATTACK-PREVENTION)
+
 ---
 
 ## 1. 🔍 The "Hybrid Ensemble" Intelligence Engine

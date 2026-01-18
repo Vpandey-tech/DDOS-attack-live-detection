@@ -143,6 +143,8 @@ class PacketCapture:
         # Determine capture method
         # Raw sockets are faster but require Admin and binding to specific IP
         self.use_raw_socket = False
+        
+        # Windows Optimization: Try Raw Sockets
         if os.name == 'nt':
             try:
                 # Test if we can open a raw socket
@@ -154,6 +156,10 @@ class PacketCapture:
                 self.logger.warning("Admin privileges missing for Raw Sockets. Falling back to Scapy.")
             except Exception as e:
                 self.logger.warning(f"Raw socket check failed: {e}. Falling back to Scapy.")
+        else:
+            # Linux/Posix: Scapy is generally efficient enough or uses PF_PACKET natively
+            self.logger.info("Non-Windows OS detected. Using standard Scapy sniffing.")
+            self.use_raw_socket = False
 
         if self.use_raw_socket:
             self.logger.info(f"PERFORMANCE MODE: Starting Raw Socket Sniffer on {self.interface}")
