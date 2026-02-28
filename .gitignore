@@ -1,20 +1,40 @@
+# Python
 __pycache__/
-.config/
-.history/
-.local/
-venv/
+*.pyc
+*.pyo
 .env
-dist/
-build/
 
-# Runtime & Logs
+# Virtual Environment
+venv/
+.venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.history/
+.config/
+.local/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Draft paper (large binary, keep locally only)
+DDos_draftpaper.pdf
+
+# Runtime & Logs (regenerated at runtime)
 *.log
 prevention_system.log
 blocked_ips.json
 baseline.pkl
 normal_traffic.pcap
 
-# Models (Optional - Remove these lines if you WANT to push models)
-# *.h5
-# *.pth
-# *.pkl
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Large dataset files (not needed for deployment)
+*.csv
+
+# Gemini/Agent workspace
+.gemini/

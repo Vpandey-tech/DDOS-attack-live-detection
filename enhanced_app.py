@@ -85,7 +85,6 @@ def main():
             with st.spinner("Loading AI models..."):
                 st.session_state.model_inference = ModelInference()
             st.success("✅ AI Models loaded successfully!")
-            st.balloons()
         except Exception as e:
             st.error(f"❌ Failed to load models: {str(e)}")
             st.stop()
@@ -93,16 +92,8 @@ def main():
     # Enhanced sidebar with professional styling
     render_enhanced_sidebar()
     
-    # Create enhanced dashboard
+    # Create dashboard and get stats
     dashboard = EnhancedDDOSDetectionDashboard()
-    
-    # Get simulation stats
-    simulation_stats = st.session_state.traffic_simulator.get_simulation_stats()
-    
-    # Create enhanced dashboard
-    dashboard = EnhancedDDOSDetectionDashboard()
-    
-    # Get simulation stats
     simulation_stats = st.session_state.traffic_simulator.get_simulation_stats()
     
     # Get packet count safely
@@ -450,7 +441,7 @@ def process_flows():
     Called by the main loop.
     """
     processed_count = 0
-    max_per_cycle = 50  # Process up to 50 flows per UI refresh to stay responsive
+    max_per_cycle = 500  # Process up to 500 flows per UI refresh for smooth real-time update
     
     try:
         while not st.session_state.flow_queue.empty() and processed_count < max_per_cycle:

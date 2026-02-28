@@ -225,23 +225,24 @@ class ModelInference:
     
     def _get_subset_features(self, features_np, model):
         """
-        Extracts the correct feature subset for a model if it expects fewer features.
-        Attempts to use feature names if available, otherwise assumes first N.
+        Prepares features for XGBoost/Random Forest.
+        Backward-compatible: works with both old models (fewer features, no scaler)
+        and new models (72 features, trained with StandardScaler).
         """
-        n_expected = 72
+        n_scaler = self.lucid_scaler.n_features_in_  # How many features the scaler expects
+        n_expected = n_scaler  # Default
         if hasattr(model, 'n_features_in_'):
             n_expected = model.n_features_in_
-        
-        if features_np.shape[1] == n_expected:
-            return features_np
-            
-        # Mismatch handling
+
+        # If model expects same feature count as the scaler → new model, scale it
+        if n_expected == n_scaler:
+            return self.lucid_scaler.transform(features_np)
+
+        # Otherwise → old model trained on fewer features without scaling
+        # Just subset the raw features (no scaling)
         if n_expected < features_np.shape[1]:
-            # Try to infer names (TODO: Implement feature name matching)
-            # For now, take first n_expected
             return features_np[:, :n_expected]
         else:
-            # Pad with zeros (rare)
             padded = np.zeros((features_np.shape[0], n_expected))
             padded[:, :features_np.shape[1]] = features_np
             return padded
